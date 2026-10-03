@@ -18,7 +18,7 @@
     "cacheTtlMinutes": {
       "type": "string",
       "title": "プロンプトキャッシュの TTL (分)",
-      "description": "最後のターン終了からこの時間が経つとキャッシュが失効したとみなす",
+      "description": "最後のターン終了からこの時間が経つとキャッシュが失効したとみなす。目安は Max プランが 60、Pro と API キーが 5",
       "options": ["5", "60"],
       "default": "5"
     },
