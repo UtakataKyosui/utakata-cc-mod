@@ -1,0 +1,47 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "auto-compact",
+  "version": "0.1.0",
+  "description": "ターン終了時のコンテキスト使用率やプロンプトキャッシュの失効を見て自動で Compaction し、要約をテキストに保存する",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "threshold": {
+      "type": "number",
+      "title": "ターン終了時の Compaction 閾値 (%)",
+      "description": "ターン終了時にコンテキスト使用率がこの値以上なら Compaction する",
+      "default": 65,
+      "min": 30,
+      "max": 95
+    },
+    "cacheTtlMinutes": {
+      "type": "string",
+      "title": "プロンプトキャッシュの TTL (分)",
+      "description": "最後のターン終了からこの時間が経つとキャッシュが失効したとみなす",
+      "options": ["5", "60"],
+      "default": "5"
+    },
+    "idleMinPercent": {
+      "type": "number",
+      "title": "キャッシュ失効時の下限 (%)",
+      "description": "キャッシュ失効時は、使用率がこの値以上のときだけ Compaction する",
+      "default": 30,
+      "min": 5,
+      "max": 95
+    },
+    "saveMode": {
+      "type": "string",
+      "title": "Compaction 内容の保存",
+      "description": "off は保存しない。summary は要約のみ、full は要約と Compaction 前の会話の読み物版を保存する",
+      "options": ["off", "summary", "full"],
+      "default": "summary"
+    },
+    "saveDir": {
+      "type": "string",
+      "title": "保存先ディレクトリ",
+      "description": "相対パスはプロジェクトルートからの位置。中に .gitignore を自動で置き、git 管理から外す",
+      "default": ".claude/compactions"
+    }
+  }
+}

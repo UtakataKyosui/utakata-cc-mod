@@ -9,6 +9,11 @@
       "name": "goal-orchestrator",
       "source": "./plugins/goal-orchestrator",
       "description": "/goal の内容をタスク分解・TODO化・実行順序付けし、各タスクを SubAgent に委譲させる"
+    },
+    {
+      "name": "auto-compact",
+      "source": "./plugins/auto-compact",
+      "description": "ターン終了時の使用率やキャッシュ失効を見て自動で Compaction し、要約をテキストに保存する"
     }
   ]
 }

@@ -33,3 +33,23 @@ pnpm install
 claude plugin validate .
 claude plugin test .
 ```
+
+## auto-compact
+
+ターン境界で自動的に Compaction する。次のどちらかを満たしたら `$.session.compact` を呼ぶ。
+
+| 条件 | 既定値 |
+|---|---|
+| ターン終了時にコンテキスト使用率が閾値以上 | 65% |
+| 最後のターン終了からキャッシュ TTL が経過し、使用率が下限以上 | TTL 5分、下限 30% |
+
+- サブエージェントのターンは対象外。Compaction 後も閾値を超えたままなら、3ターンは再実行しない。
+- Compaction のたびに要約を Markdown で `.claude/compactions/` に保存する（`saveMode`: `off` / `summary` / `full`）。`full` は Compaction 前の会話の読み物版も残す。保存先には `.gitignore`（`*`）を自動で置く。
+- 閾値・TTL・下限・保存先は userConfig で変更できる。
+- プラグインが呼ぶ Compaction では自プラグインの `session.compact` フックが走らないため、保存は呼び出し側でも行う。
+
+### 導入
+
+```
+/plugin install auto-compact@utakata-cc-mod
+```
