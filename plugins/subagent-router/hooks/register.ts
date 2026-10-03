@@ -48,6 +48,7 @@ export const register: Register = (on, options) => {
 
   on('turn.step', async function* ($, e, next) {
     const effort = e.agentId === undefined ? undefined : efforts.get(e.agentId)
+    if (effort !== undefined) $.ui.log(`subagent-router: effort ${e.effort ?? '(none)'} -> ${effort}`, { to: 'debug' })
     return yield* next(effort === undefined ? e : { ...e, effort })
   })
 }
