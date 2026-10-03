@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "goal-orchestrator",
-      "source": "./",
+      "source": "./plugins/goal-orchestrator",
       "description": "/goal の内容をタスク分解・TODO化・実行順序付けし、各タスクを SubAgent に委譲させる"
     }
   ]
