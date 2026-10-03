@@ -1,0 +1,45 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "subagent-router",
+  "version": "0.1.0",
+  "description": "SubAgent の起動時に、タスクに合う model と effort を ollama の決定モデル (tev1:4b、不調なら nimble) に判断させて振り分ける",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "ollamaUrl": {
+      "type": "string",
+      "title": "ollama の URL",
+      "description": "ollama サーバーのベース URL",
+      "default": "http://localhost:11434"
+    },
+    "models": {
+      "type": "string",
+      "title": "決定モデルの優先順 (カンマ区切り)",
+      "description": "先頭から試し、接続失敗・タイムアウト・メモリ不足・不正な応答のモデルは次へ回す。既定は tev1:4b、nimble の順",
+      "default": "tev1:4b,nimble"
+    },
+    "timeoutSeconds": {
+      "type": "number",
+      "title": "1 モデルあたりのタイムアウト (秒)",
+      "description": "モデルの読み込みを含めてこの時間内に答えなければ失敗として次のモデルへ回す",
+      "default": 30,
+      "min": 5,
+      "max": 120
+    },
+    "skipTurns": {
+      "type": "number",
+      "title": "失敗したモデルを飛ばす SubAgent 数",
+      "description": "失敗したモデルは、この回数の SubAgent 起動のあいだ試さない",
+      "default": 5,
+      "min": 0,
+      "max": 50
+    },
+    "keepAlive": {
+      "type": "string",
+      "title": "モデルをメモリに残す時間",
+      "description": "ollama の keep_alive。短いほどメモリを早く解放する",
+      "default": "1m"
+    }
+  }
+}

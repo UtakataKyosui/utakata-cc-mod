@@ -55,3 +55,29 @@ claude plugin test .
 ```
 /plugin install auto-compact@utakata-cc-mod
 ```
+
+## subagent-router
+
+SubAgent の起動時に、タスクに合う model と effort を ollama の決定モデルに判断させて振り分ける。
+
+| 項目 | 内容 |
+|---|---|
+| 判断の材料 | agent type、description、prompt の先頭 4000 文字 |
+| 判断の結果 | model: `haiku` / `sonnet` / `opus`、effort: `low` / `medium` / `high` / `xhigh` / `max` |
+| 既定の決定モデル | `tev1:4b` → `nimble`（9B）の順 |
+
+- ollama の構造化出力（JSON スキーマ）で応答を縛り、スキーマ外の値は失敗として扱う。
+- 接続失敗・タイムアウト・メモリ不足による異常・不正な応答のいずれかで、次のモデルへ回す。失敗したモデルは次の 5 回の SubAgent 起動のあいだ試さない。
+- 全モデルが失敗したときは振り分けず、元の指定のまま起動する。
+- model は `agent.spawn` フックで、effort は SubAgent 自身のリクエストの `turn.step` フックで適用する。
+- `tev1:0.8b` は軽すぎて、試した 8 件のうち 5 件で model を外した（ほぼ常に opus を返す）ため既定には入れていない。`models` に追記すれば使える。
+- Agent 呼び出しが model を明示している場合と fork は対象外。
+- ollama の URL、モデルの優先順、タイムアウト、失敗時に飛ばす回数、`keep_alive` は userConfig で変更できる。
+
+### 導入
+
+```
+ollama pull tev1:4b
+ollama pull nimble
+/plugin install subagent-router@utakata-cc-mod
+```
