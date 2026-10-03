@@ -1,14 +1,12 @@
 {
   "name": "utakata-cc-mod",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Claude Code 用の mod 集",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "claude plugin test .",
+    "validate": "claude plugin validate ."
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
@@ -20,5 +18,6 @@
   "type": "module",
   "devDependencies": {
     "typescript": "^7.0.2"
-  }
+  },
+  "private": true
 }

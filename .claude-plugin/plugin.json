@@ -2,5 +2,7 @@
   "name": "goal-orchestrator",
   "version": "0.1.0",
   "description": "/goal の内容をタスク分解・TODO化・実行順序付けし、各タスクを SubAgent に委譲させる",
-  "author": { "name": "UtakataKyosui" }
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT"
 }

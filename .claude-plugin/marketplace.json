@@ -1,0 +1,14 @@
+{
+  "name": "utakata-cc-mod",
+  "description": "Claude Code 用の mod 集",
+  "owner": {
+    "name": "UtakataKyosui"
+  },
+  "plugins": [
+    {
+      "name": "goal-orchestrator",
+      "source": "./",
+      "description": "/goal の内容をタスク分解・TODO化・実行順序付けし、各タスクを SubAgent に委譲させる"
+    }
+  ]
+}
