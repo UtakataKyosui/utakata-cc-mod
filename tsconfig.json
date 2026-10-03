@@ -7,9 +7,10 @@
 
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
-    "module": "nodenext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "target": "esnext",
-    "types": [],
+    "types": ["claude-code", "claude-code-tools", "claude-code-mcp"],
     // For nodejs:
     // "lib": ["esnext"],
     // "types": ["node"],
@@ -34,11 +35,15 @@
 
     // Recommended Options
     "strict": true,
-    "jsx": "react-jsx",
+    "jsx": "react",
+    "jsxFactory": "h",
+    "jsxFragmentFactory": "Fragment",
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
-  }
+    "typeRoots": ["./.claude-plugin/types"]
+  },
+  "include": ["hooks"],
 }
