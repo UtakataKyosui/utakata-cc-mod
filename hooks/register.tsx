@@ -2,31 +2,27 @@ import type { Register } from 'claude-code'
 import { buildPlaybook, isGoalStatement } from './playbook'
 
 export const register: Register = on => {
-  let activeGoal: string | undefined
+  let pendingGoal: string | undefined
 
   on('command.run', { command: 'goal' }, async ($, e, next) => {
     const ran = await next(e)
 
     if (isGoalStatement(e.args)) {
-      activeGoal = e.args
+      pendingGoal = e.args
       $.ui.toast('goal-orchestrator: タスク分解と SubAgent 委譲の手順を有効にした')
     } else {
-      activeGoal = undefined
+      pendingGoal = undefined
     }
 
     return ran
   })
 
-  on('prompt.compose', async ($, e, next) => {
-    const composed = await next(e)
+  on('prompt.submit', ($, e, next) => {
+    if (pendingGoal === undefined) return next(e)
 
-    if (activeGoal === undefined) return composed
+    const playbook = buildPlaybook(pendingGoal)
+    pendingGoal = undefined
 
-    return {
-      sections: [
-        ...composed.sections,
-        { id: `${$.plugin.name}:playbook`, text: buildPlaybook(activeGoal), scope: 'session' },
-      ],
-    }
+    return next({ ...e, context: [...(e.context ?? []), playbook] })
   })
 }

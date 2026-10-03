@@ -14,28 +14,40 @@ test('手順にゴールと委譲の指示が入る', () => {
   expect(text).toContain('完了条件')
 })
 
-const compose = ($: any) =>
-  $.prompt.compose({ model: 'm', promptModel: 'm', surfaces: [], tools: [], outputStyle: null, traits: [] }).then((r: { sections: { id: string; text: string }[] }) => r.sections)
+const echo = ($: any, on: any) =>
+  on('prompt.submit', (_$: unknown, e: { text: string; context?: readonly string[] }) => ({
+    text: e.text,
+    context: e.context,
+  }))
 
-test('goal 設定後のシステムプロンプトに手順書が入る', async ($, on) => {
+test('goal 設定後の最初のプロンプトに手順書が context で付く', async ($, on) => {
   on('command.run', { command: 'goal' }, () => ({ text: 'Goal set' }))
-  on('prompt.compose', () => ({ sections: [] }))
-
-  expect(await compose($)).toEqual([])
+  echo($, on)
 
   await $.command.run({ command: 'goal', args: 'API を作る' })
-  const sections = await compose($)
+  const first = await $.prompt.submit({ text: '/goal API を作る' })
 
-  expect(sections.map(s => s.id)).toEqual(['goal-orchestrator:playbook'])
-  expect(sections[0].text).toContain('ゴール: API を作る')
+  expect(first.context?.[0]).toContain('ゴール: API を作る')
 })
 
-test('goal clear で手順書が外れる', async ($, on) => {
+test('手順書は一度しか付かない', async ($, on) => {
+  on('command.run', { command: 'goal' }, () => ({ text: 'Goal set' }))
+  echo($, on)
+
+  await $.command.run({ command: 'goal', args: 'API を作る' })
+  await $.prompt.submit({ text: '1回目' })
+  const second = await $.prompt.submit({ text: '2回目' })
+
+  expect(second.context).toBeUndefined()
+})
+
+test('goal clear では手順書を付けない', async ($, on) => {
   on('command.run', { command: 'goal' }, () => ({ text: 'ok' }))
-  on('prompt.compose', () => ({ sections: [] }))
+  echo($, on)
 
   await $.command.run({ command: 'goal', args: 'API を作る' })
   await $.command.run({ command: 'goal', args: 'clear' })
+  const ran = await $.prompt.submit({ text: 'x' })
 
-  expect(await compose($)).toEqual([])
+  expect(ran.context).toBeUndefined()
 })
