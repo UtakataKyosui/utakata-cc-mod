@@ -8,6 +8,8 @@ import {
   resolveDir,
   shouldCompactAtTurnEnd,
   shouldCompactOnIdle,
+  ttlFromLabel,
+  ttlFromResume,
 } from './policy'
 
 const SETTLE_MS = 1000
@@ -16,7 +18,7 @@ const RETRY_LIMIT = 5
 const INSTRUCTIONS =
   '進行中のタスク、決定事項、未解決の問題、変更したファイルと次にやることを優先して残す'
 
-type State = { idleTimer: { cancel: () => void } | undefined; running: boolean; cooldown: number }
+type State = { idleTimer: { cancel: () => void } | undefined; running: boolean; cooldown: number; ttlMs: number }
 
 const cancelIdle = (state: State) => {
   state.idleTimer?.cancel()
@@ -100,12 +102,42 @@ async function check($: any, state: State, cfg: Config) {
     return
   }
   cancelIdle(state)
-  state.idleTimer = $.clock.after(cfg.ttlMs, () => void onIdle($, state, cfg).catch(() => {}))
+  state.idleTimer = $.clock.after(state.ttlMs, () => void onIdle($, state, cfg).catch(() => {}))
+}
+
+type ResumeInfo = {
+  source: string
+  seconds_since_last_response?: number
+  prompt_cache_likely_expired?: boolean
+  context_tokens?: number
+}
+
+async function onResume($: any, state: State, cfg: Config, e: ResumeInfo) {
+  const learned = ttlFromResume(e.seconds_since_last_response, e.prompt_cache_likely_expired)
+  if (learned !== undefined) state.ttlMs = learned
+  if (e.prompt_cache_likely_expired !== true || e.context_tokens === undefined) return
+  const { context } = await $.session.usage()
+  const percent = (e.context_tokens / context.window) * 100
+  if (shouldCompactOnIdle(percent, cfg.idleMinPercent)) {
+    await compact($, state, cfg, '再開時にキャッシュが失効していた')
+  }
 }
 
 export const register: Register = (on, options) => {
   const cfg = readConfig(options)
-  const state: State = { idleTimer: undefined, running: false, cooldown: 0 }
+  const state: State = { idleTimer: undefined, running: false, cooldown: 0, ttlMs: cfg.ttlMs }
+
+  on('classic.SessionStart', ($, e, next) => {
+    if (e.source === 'resume' || e.source === 'fork') {
+      $.clock.after(SETTLE_MS, () => void onResume($, state, cfg, e).catch(() => {}))
+    }
+    return next(e)
+  })
+
+  on('classic.PreModelSwitch', ($, e, next) => {
+    state.ttlMs = ttlFromLabel(e.cache_ttl) ?? state.ttlMs
+    return next(e)
+  })
 
   on('turn.start', ($, e, next) => {
     cancelIdle(state)

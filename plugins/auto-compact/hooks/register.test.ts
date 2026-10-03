@@ -1,5 +1,13 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { buildDocument, fileName, readConfig, shouldCompactAtTurnEnd, shouldCompactOnIdle } from './policy'
+import {
+  buildDocument,
+  fileName,
+  readConfig,
+  shouldCompactAtTurnEnd,
+  shouldCompactOnIdle,
+  ttlFromLabel,
+  ttlFromResume,
+} from './policy'
 
 test('閾値以上のときだけターン終了時に Compaction する', () => {
   expect(shouldCompactAtTurnEnd(65, 65)).toBe(true)
@@ -38,6 +46,7 @@ const setup = ($: any, on: any, percentRef: { v: number | undefined }, calls: st
   on('turn.complete', (_$: unknown, e: { answer: string }) => ({ text: e.answer }))
   on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000, percent: percentRef.v }, rateLimits: [] } }))
+  on('classic.SessionStart', () => ({}))
   on('ui.toast', () => ({ value: undefined }))
   on('session.messages', () => ({ value: [] }))
   on('session.root', () => ({ value: '/proj' }))
@@ -112,6 +121,46 @@ test('次のターン開始でキャッシュ失効タイマーが止まる', as
   await clock.advance(1000)
   await $.turn.start({ turnId: 't2' })
   await clock.advance(10 * 60_000)
+
+  expect(calls).toEqual([])
+})
+
+test('再開時の経過時間と失効の有無から TTL を絞る', () => {
+  expect(ttlFromResume(600, true)).toBe(300_000)
+  expect(ttlFromResume(600, false)).toBe(3_600_000)
+  expect(ttlFromResume(120, false)).toBeUndefined()
+  expect(ttlFromResume(7200, true)).toBeUndefined()
+  expect(ttlFromResume(undefined, true)).toBeUndefined()
+  expect(ttlFromLabel('1h')).toBe(3_600_000)
+  expect(ttlFromLabel('x')).toBeUndefined()
+})
+
+test('キャッシュが失効した状態で再開し、使用率が下限以上なら Compaction する', async ($, on) => {
+  const calls: string[] = []
+  const clock = setup($, on, { v: undefined }, calls, {})
+
+  await $.classic.SessionStart({
+    source: 'resume',
+    seconds_since_last_response: 900,
+    prompt_cache_likely_expired: true,
+    context_tokens: 100000,
+  })
+  await clock.advance(1000)
+
+  expect(calls).toEqual(['compact'])
+})
+
+test('キャッシュが生きている再開では Compaction しない', async ($, on) => {
+  const calls: string[] = []
+  const clock = setup($, on, { v: undefined }, calls, {})
+
+  await $.classic.SessionStart({
+    source: 'resume',
+    seconds_since_last_response: 120,
+    prompt_cache_likely_expired: false,
+    context_tokens: 100000,
+  })
+  await clock.advance(1000)
 
   expect(calls).toEqual([])
 })

@@ -69,3 +69,18 @@ export const buildDocument = (d: DocInput) => {
   }
   return lines.join('\n') + '\n'
 }
+
+const TTL_5M = 5 * 60_000
+const TTL_1H = 60 * 60_000
+
+export const ttlFromLabel = (label: string | undefined) =>
+  label === '5m' ? TTL_5M : label === '1h' ? TTL_1H : undefined
+
+// TTL は 5分か1時間のどちらか。再開時の経過時間と失効の有無から、どちらかに絞れるときだけ返す
+export const ttlFromResume = (gapSec: number | undefined, expired: boolean | undefined) => {
+  if (gapSec === undefined || expired === undefined) return undefined
+  const gapMs = gapSec * 1000
+  if (expired && gapMs < TTL_1H) return TTL_5M
+  if (!expired && gapMs > TTL_5M) return TTL_1H
+  return undefined
+}
