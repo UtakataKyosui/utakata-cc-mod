@@ -7,7 +7,7 @@
   "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
   "license": "MIT",
   "userConfig": {
-    "mode": {
+    "stackPlanningMode": {
       "type": "string",
       "title": "Stack PR の進め方",
       "description": "plan は実装前に層を計画して下から積む。after は1本のブランチで実装してから層に分割する。プロンプトに stack:plan / stack:after と書くとその回だけ上書きできる",

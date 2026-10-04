@@ -1,7 +1,7 @@
 export type Mode = 'plan' | 'after'
 
 export type Config = {
-  mode: Mode
+  stackPlanningMode: Mode
   maxLines: number
   maxFiles: number
   maxLayers: number
@@ -13,7 +13,7 @@ const clamp = (value: unknown, fallback: number, min: number, max: number): numb
 }
 
 export const readConfig = (options: Record<string, unknown>): Config => ({
-  mode: options.mode === 'after' ? 'after' : 'plan',
+  stackPlanningMode: options.stackPlanningMode === 'after' ? 'after' : 'plan',
   maxLines: clamp(options.maxLines, 400, 50, 5000),
   maxFiles: clamp(options.maxFiles, 15, 3, 200),
   maxLayers: clamp(options.maxLayers, 3, 2, 10),
@@ -79,7 +79,7 @@ ${layers(cfg)}
 5. ${SUBMIT}
 6. 以降の修正と同期は、\`gh stack rebase\` / \`gh stack push\` / \`gh stack sync\` を使う。衝突して解消できなければ \`gh stack rebase --abort\` で元に戻し、ユーザーに報告する。`
 
-export const buildPlaybook = (cfg: Config, mode: Mode = cfg.mode): string => {
+export const buildPlaybook = (cfg: Config, mode: Mode = cfg.stackPlanningMode): string => {
   const softLines = Math.round(cfg.maxLines / 2)
   const softFiles = Math.round(cfg.maxFiles / 2)
   return `${MARKER}

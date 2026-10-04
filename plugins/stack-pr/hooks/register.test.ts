@@ -2,8 +2,8 @@ import { test, expect } from 'claude-code/testing'
 import { buildPlaybook, mentionsIssue, pickMode, readConfig } from './policy'
 
 test('設定の既定値と不正値の丸め', () => {
-  expect(readConfig({})).toEqual({ mode: 'plan', maxLines: 400, maxFiles: 15, maxLayers: 3 })
-  expect(readConfig({ mode: 'bogus', maxLines: 99999, maxFiles: 'x', maxLayers: 1 })).toEqual({ mode: 'plan', maxLines: 5000, maxFiles: 15, maxLayers: 2 })
+  expect(readConfig({})).toEqual({ stackPlanningMode: 'plan', maxLines: 400, maxFiles: 15, maxLayers: 3 })
+  expect(readConfig({ stackPlanningMode: 'bogus', maxLines: 99999, maxFiles: 'x', maxLayers: 1 })).toEqual({ stackPlanningMode: 'plan', maxLines: 5000, maxFiles: 15, maxLayers: 2 })
 })
 
 test('Issue の実装依頼を検出する', () => {
@@ -49,7 +49,7 @@ test('mode ごとに手順が変わり、共通部分は残る', () => {
     expect(text).toContain('gh stack submit --auto')
     expect(text).toContain('守ること')
   }
-  expect(buildPlaybook(readConfig({ mode: 'after' }))).toContain('実装後にスタックへ分割する')
+  expect(buildPlaybook(readConfig({ stackPlanningMode: 'after' }))).toContain('実装後にスタックへ分割する')
 })
 
 const echo = ($: any, on: any) =>
