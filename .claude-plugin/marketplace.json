@@ -19,6 +19,11 @@
       "name": "subagent-router",
       "source": "./plugins/subagent-router",
       "description": "SubAgent の起動時に、model と effort を ollama の決定モデル (nimble) に判断させて振り分ける"
+    },
+    {
+      "name": "stack-pr",
+      "source": "./plugins/stack-pr",
+      "description": "変更範囲の大きい Issue の実装を、gh stack の Stack PR に分割して自律的に進めさせる"
     }
   ]
 }
