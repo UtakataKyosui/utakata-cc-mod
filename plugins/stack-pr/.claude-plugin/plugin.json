@@ -1,0 +1,42 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "stack-pr",
+  "version": "0.1.0",
+  "description": "変更範囲の大きい Issue の実装を、gh stack の Stack PR に分割して自律的に進めさせる",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "stackPlanningMode": {
+      "type": "string",
+      "title": "Stack PR の進め方",
+      "description": "plan は実装前に層を計画して下から積む。after は1本のブランチで実装してから層に分割する。プロンプトに stack:plan / stack:after と書くとその回だけ上書きできる",
+      "default": "plan",
+      "options": ["plan", "after"]
+    },
+    "maxLines": {
+      "type": "number",
+      "title": "大規模とみなす変更行数 (追加+削除)",
+      "description": "見込みがこの値以上なら、それだけで Stack PR にする。この半分以上は「準大規模」として数える",
+      "default": 400,
+      "min": 50,
+      "max": 5000
+    },
+    "maxFiles": {
+      "type": "number",
+      "title": "大規模とみなす変更ファイル数",
+      "description": "見込みがこの値以上なら、それだけで Stack PR にする。この半分以上は「準大規模」として数える",
+      "default": 15,
+      "min": 3,
+      "max": 200
+    },
+    "maxLayers": {
+      "type": "number",
+      "title": "大規模とみなす層・領域の数",
+      "description": "スキーマ/バックエンド/フロントエンド/インフラ/ドキュメントなど、独立してレビューできる層がこの数以上にまたがるなら Stack PR にする",
+      "default": 3,
+      "min": 2,
+      "max": 10
+    }
+  }
+}
