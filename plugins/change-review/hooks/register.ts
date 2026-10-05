@@ -15,11 +15,38 @@ import {
   reviewerDescription,
   reviewerPrompt,
   severe,
+  PRECHECK_SCHEMA,
+  PRECHECK_TOOL,
+  type PrecheckFinding,
+  type PrecheckInput,
+  buildPrecheckPrompt,
+  classifyFindings,
+  diffArgs,
+  diffCommand,
+  diffStat,
+  formatPrecheck,
+  initialPrecheck,
+  parseDiff,
+  precheckFailText,
+  precheckGuidance,
+  precheckReviewerNote,
+  precheckSystem,
+  precheckTool,
 } from './policy'
+import { type LlmTransport, callLocalLlm, createLlmState, readLlmConfig } from './local-llm'
+
+const transport = ($: any): LlmTransport => ({
+  fetch: (url, init) => $.http.fetch(url, init),
+  sleep: (ms, o) => $.clock.sleep(ms, o),
+  log: text => $.ui.log(text, { to: 'debug' }),
+})
 
 export const register: Register = (on, options) => {
   const cfg = readConfig(options)
+  const llm = readLlmConfig(options)
+  const llmState = createLlmState()
   let state = initialState()
+  let pre = initialPrecheck()
   const reviewers = new Set<string>()
 
   on('session.start', async ($, e, next) => {
@@ -28,32 +55,71 @@ export const register: Register = (on, options) => {
       .register({
         name: 'reviewer',
         description: reviewerDescription,
-        prompt: reviewerPrompt,
+        prompt: llm.mode === 'off' ? reviewerPrompt : `${reviewerPrompt}\n\n${precheckReviewerNote}`,
         tools: ['Read', 'Grep', 'Glob', 'Bash'],
         disallowedTools: ['Write', 'Edit', 'NotebookEdit'],
         omitClaudeMd: true,
       })
       .catch(() => $.ui.log('change-review: reviewer の登録に失敗した', { to: 'debug' }))
+    if (llm.mode !== 'off') await $.tool.register(precheckTool).catch(() => $.ui.log('change-review: precheck_diff の登録に失敗した', { to: 'debug' }))
     return next(e)
   })
 
   on('command.run', { command: 'change-review' }, async ($, e) => {
     if (/^\s*reset\s*$/i.test(e.args)) {
       state = initialState()
+      pre = initialPrecheck()
       return { text: 'change-review: レビュー回数を数え直した' }
     }
     const diff = await $.process.run(['git', 'diff', '--shortstat', 'HEAD']).catch(() => undefined)
     if (diff === undefined || diff.exitCode !== 0) {
-      return { text: `${formatStatus(state, cfg)}\n差分の規模を取得できなかった (git リポジトリで実行されていない可能性がある): 省略可否は判断できない` }
+      return { text: `${formatStatus(state, cfg, pre)}\n差分の規模を取得できなかった (git リポジトリで実行されていない可能性がある): 省略可否は判断できない` }
     }
     const judged = judgeSkip(parseShortstat(diff.stdout), cfg)
     if (judged.skip && state.reviews === 0) state = { ...state, skipped: judged.reason }
-    return { text: `${formatStatus(state, cfg)}\n省略可否: ${judged.skip ? '省略してよい' : '省略不可'} (${judged.reason})` }
+    return { text: `${formatStatus(state, cfg, pre)}\n省略可否: ${judged.skip ? '省略してよい' : '省略不可'} (${judged.reason})` }
   })
 
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
-    return { sections: [...composed.sections, { id: 'change-review:guidance', text: guidance(cfg), scope: 'session' }] }
+    const text = llm.mode === 'off' ? guidance(cfg) : `${guidance(cfg)}\n\n${precheckGuidance}`
+    return { sections: [...composed.sections, { id: 'change-review:guidance', text, scope: 'session' }] }
+  })
+
+  // 一次点検は読み取り専用。LLM へはツールも自由なコマンドも渡さず、plugin が固定の git diff だけを実行して入力を組み立てる
+  on('tool.call', { tool: PRECHECK_TOOL }, async ($, e) => {
+    if (llm.mode === 'off') return { result: precheckFailText('llmMode が off') }
+    const fail = (reason: string) => {
+      pre = { ...pre, failed: pre.failed + 1 }
+      return { result: precheckFailText(reason) }
+    }
+    try {
+      const input = e as unknown as PrecheckInput
+      const argv = diffArgs(input)
+      if (argv === undefined) return { result: precheckFailText('range が git の範囲として不正') }
+      const diff = await $.process.run(argv, { timeoutMs: 60_000 }).catch(() => undefined)
+      if (diff === undefined || diff.exitCode !== 0) return { result: precheckFailText('差分を取得できなかった') }
+      const files = parseDiff(diff.stdout)
+      if (files.length === 0) return { result: precheckFailText('変更差分がない') }
+      const { prompt, view } = buildPrecheckPrompt(input, files, llm.maxInputChars)
+      if (view.files.length === 0) return { result: precheckFailText('入力の上限内に送れる差分がない') }
+
+      const stat = diffStat(files)
+      const r = await callLocalLlm<{ findings: PrecheckFinding[] }>(
+        transport($),
+        llm,
+        { label: 'change-review', prompt, system: precheckSystem, schema: PRECHECK_SCHEMA, autoWhen: () => !judgeSkip(stat, cfg).skip },
+        llmState,
+      )
+      if (!r.ok) return r.reason === 'disabled' ? { result: precheckFailText('auto の条件 (省略できない規模) を満たさない') } : fail(`理由: ${r.reason}`)
+
+      const checked = classifyFindings(r.value.findings, view)
+      pre = { runs: pre.runs + 1, failed: pre.failed, findings: pre.findings + checked.verified.length }
+      const notes = ['未追跡ファイルは git diff に含まれず、点検していない']
+      return { result: formatPrecheck({ model: r.model, command: diffCommand(argv), view, notes, ...checked }) }
+    } catch {
+      return fail('予期しない失敗')
+    }
   })
 
   on('agent.spawn', async ($, e, next) => {
