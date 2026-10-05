@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "code-finder",
+  "version": "0.1.0",
+  "description": "fd と ripgrep でファイル名・コード内容を検索するツール (find_files / search_code) をモデルに提供するMod",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "maxResults": {
+      "type": "number",
+      "title": "返す結果の最大行数",
+      "description": "1 回の検索で返す行数の上限。超えた分は切り捨てて件数だけ伝える",
+      "default": 200,
+      "min": 10,
+      "max": 2000
+    }
+  }
+}

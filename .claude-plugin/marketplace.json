@@ -29,6 +29,11 @@
       "name": "advanced-rust-cli",
       "source": "./plugins/advanced-rust-cli",
       "description": "Rustで実装された基礎的なコマンドの改善版のみを常に使用するように挙動を変更するMod"
+    },
+    {
+      "name": "code-finder",
+      "source": "./plugins/code-finder",
+      "description": "fd と ripgrep でファイル名・コード内容を検索するツール (find_files / search_code) をモデルに提供する"
     }
   ]
 }

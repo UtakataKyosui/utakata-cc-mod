@@ -127,3 +127,24 @@ B の行数・ファイル数は A の半分。実装中に実際の差分が基
 ```
 /plugin install stack-pr@utakata-cc-mod
 ```
+
+## code-finder
+
+fd と ripgrep を使って、ファイルやコードを探すツールをモデルに提供する。
+
+| ツール | 中身 | 主な引数 |
+|---|---|---|
+| `mcp__code-finder__find_files` | fd でファイル・ディレクトリを名前検索 | `pattern`、`extension`、`type`、`glob`、`hidden`、`max_depth`、`path` |
+| `mcp__code-finder__search_code` | ripgrep でファイルの中身を検索 | `pattern`、`glob`、`type`、`file_pattern`、`ignore_case`、`fixed`、`word`、`files_only`、`context`、`path` |
+
+- `search_code` に `file_pattern` を渡すと、fd でファイル名を絞ってからその中だけを rg で検索する（`fd PATTERN | xargs rg` 相当、絞り込みは最大 1000 ファイル）。
+- 起動時に `fd` / `rg` の有無を調べ、入っているほうのツールだけ登録する。システムプロンプトにも使い分けの案内を足す。
+- コマンドはシェルを通さず argv で実行し、パターンの前に `--` を置くので、`-` で始まる文字列もオプションとして解釈されない。
+- 返す行数の上限は userConfig の `maxResults`（既定 200）で変更できる。
+
+### 導入
+
+```
+brew install fd ripgrep
+/plugin install code-finder@utakata-cc-mod
+```
