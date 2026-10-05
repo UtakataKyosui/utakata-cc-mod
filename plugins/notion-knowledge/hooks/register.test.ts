@@ -1,7 +1,7 @@
-import { test, expect } from 'claude-code/testing'
+import { test, expect, mock } from 'claude-code/testing'
 import {
-  apiArgs, buildProperties, clipText, formatPages, guidance, markdownBody, normalizeId, queryBody, readConfig, richText, sameTitle,
-  searchBody, snapshotName, summarizePage, titlePropertyName, toPropertyValue,
+  apiArgs, buildContext, buildDuplicatePrompt, buildRecordPrompt, buildSelectPrompt, clipText, formatCatalog, isTrivial,
+  looksSensitive, normalizeId, parseRecord, parseSelection, readConfig, richText, sameTitle, toEntry,
 } from './policy'
 
 const ID = '3d26285e-fd22-801e-9174-000b98258a86'
@@ -12,218 +12,198 @@ test('ID は URL・32 桁・ダッシュ付きのいずれからも揃える', (
   expect(normalizeId('https://www.notion.so/ws/Title-3d26285efd22801e9174000b98258a86?v=0123456789abcdef0123456789abcdef')).toBe(ID)
   expect(normalizeId(`https://www.notion.so/${ID.toUpperCase()}#frag`)).toBe(ID)
   expect(normalizeId('not an id')).toBeUndefined()
-  expect(normalizeId(undefined)).toBeUndefined()
 })
 
-test('設定の丸め', () => {
-  expect(readConfig(undefined)).toEqual({ databaseId: undefined, maxChars: 30000, maxPages: 5 })
-  expect(readConfig({ databaseId: ` ${ID} `, maxChars: 1, maxPages: 999 })).toEqual({ databaseId: ID, maxChars: 1000, maxPages: 50 })
-  expect(readConfig({ databaseId: '' }).databaseId).toBeUndefined()
+test('設定の既定値と丸め', () => {
+  const d = readConfig(undefined)
+  expect(d).toMatchObject({ databaseId: undefined, autoRecord: true, models: ['tev1:4b'], timeoutMs: 40000, catalogSize: 100, maxPages: 3 })
+  expect(readConfig({ databaseId: ID, autoRecord: false, models: ' a, b ,', catalogSize: 9999, maxPages: 0, ollamaUrl: 'http://h:1/' })).toMatchObject({
+    databaseId: ID, autoRecord: false, models: ['a', 'b'], catalogSize: 300, maxPages: 1, ollamaUrl: 'http://h:1',
+  })
 })
 
-test('ntn api の引数と本文', () => {
+test('ntn api の引数と補助関数', () => {
   expect(apiArgs('v1/pages', 'POST', true)).toEqual(['ntn', 'api', 'v1/pages', '-X', 'POST', '-d', '@-'])
   expect(apiArgs('v1/pages/x', 'GET', false)).toEqual(['ntn', 'api', 'v1/pages/x', '-X', 'GET'])
-  expect(searchBody(' ', 500)).toEqual({ filter: { property: 'object', value: 'page' }, page_size: 100 })
-  expect(searchBody('rust', 10, 'c1')).toMatchObject({ query: 'rust', page_size: 10, start_cursor: 'c1' })
-  expect(queryBody({ limit: 20 }).sorts).toEqual([{ timestamp: 'last_edited_time', direction: 'descending' }])
-  expect(queryBody({ filter: { a: 1 }, sorts: [], limit: 5, cursor: 'c' })).toEqual({ filter: { a: 1 }, sorts: [], page_size: 5, start_cursor: 'c' })
-})
-
-const schema = {
-  名前: { type: 'title' },
-  タグ: { type: 'multi_select' },
-  種別: { type: 'select' },
-  確認日: { type: 'date' },
-  済: { type: 'checkbox' },
-  点数: { type: 'number' },
-  メモ: { type: 'rich_text' },
-  更新: { type: 'last_edited_time' },
-}
-
-test('プロパティ値の変換', () => {
-  expect(titlePropertyName(schema)).toBe('名前')
-  expect(buildProperties(schema, { タグ: 'a, b', 種別: 'メモ', 確認日: '2026-10-06/2026-10-07', 済: 'true', 点数: '3', メモ: null })).toEqual({
-    タグ: { multi_select: [{ name: 'a' }, { name: 'b' }] },
-    種別: { select: { name: 'メモ' } },
-    確認日: { date: { start: '2026-10-06', end: '2026-10-07' } },
-    済: { checkbox: true },
-    点数: { number: 3 },
-    メモ: { rich_text: [] },
-  })
-  expect(toPropertyValue('種別', 'select', null)).toEqual({ select: null })
-  expect(() => buildProperties(schema, { ない: 'x' })).toThrow('使えるのは')
-  expect(() => buildProperties(schema, { 更新: 'x' })).toThrow('読み取り専用')
-  expect(() => buildProperties(schema, { 点数: 'abc' })).toThrow('数値')
-  expect(() => buildProperties(schema, { 済: 'yes' })).toThrow('true / false')
-})
-
-test('rich_text は 2000 文字で分ける', () => {
   expect(richText('a'.repeat(4500)).map(t => t.text.content.length)).toEqual([2000, 2000, 500])
-})
-
-test('本文更新のリクエストは子の削除を許可しない', () => {
-  expect(markdownBody('append', { content: 'x' })).toEqual({ type: 'insert_content', insert_content: { content: 'x', position: { type: 'end' } } })
-  expect(markdownBody('replace', { content: 'x' })).toEqual({ type: 'replace_content', replace_content: { new_str: 'x', allow_deleting_content: false } })
-  expect(markdownBody('edit', { edits: [{ old_str: 'a', new_str: 'b', replace_all: true }, { old_str: 'c', new_str: 'd' }] })).toEqual({
-    type: 'update_content',
-    update_content: {
-      content_updates: [{ old_str: 'a', new_str: 'b', replace_all_matches: true }, { old_str: 'c', new_str: 'd' }],
-      allow_deleting_content: false,
-    },
-  })
-})
-
-test('題名の同一判定と整形', () => {
   expect(sameTitle('Ｒｕｓｔ  入門 ', 'rust 入門')).toBe(true)
   expect(sameTitle('Rust', 'Rust 入門')).toBe(false)
-  const page = {
-    id: ID,
-    url: 'https://notion.so/x',
-    last_edited_time: '2026-10-05T00:00:00.000Z',
-    properties: {
-      名前: { type: 'title', title: [{ plain_text: 'Rust' }, { plain_text: '入門' }] },
-      タグ: { type: 'multi_select', multi_select: [{ name: 'a' }, { name: 'b' }] },
-      空: { type: 'select', select: null },
-    },
-  }
-  expect(summarizePage(page)).toEqual({ id: ID, url: 'https://notion.so/x', title: 'Rust入門', edited: '2026-10-05T00:00:00.000Z', props: [['タグ', 'a, b']] })
-  expect(formatPages([], false)).toContain('見つからなかった')
-  expect(formatPages([summarizePage(page)], true)).toContain('まだ続きがある')
   expect(clipText('abcdef', 3)).toContain('全 6 文字')
-  expect(snapshotName('2026-10-06T01:02:03.456Z', ID)).toBe(`2026-10-06T01-02-03-456Z-${ID}.md`)
-  expect(guidance).toContain('record_knowledge')
 })
 
-type Call = { argv: readonly string[]; stdin: string | undefined }
+const page = (id: string, title: string, tags: string[] = []) => ({
+  object: 'page',
+  id,
+  url: `https://notion.so/${id}`,
+  properties: {
+    名前: { type: 'title', title: [{ plain_text: title }] },
+    タグ: { type: 'multi_select', multi_select: tags.map(name => ({ name })) },
+    種別: { type: 'select', select: { name: '手順' } },
+  },
+})
 
-const setup = (on: any, respond: (argv: readonly string[], stdin: string | undefined) => { exitCode?: number; stdout?: string; stderr?: string }) => {
-  const calls: Call[] = []
-  const writes: Record<string, string> = {}
-  on('process.run', (_$: unknown, e: { argv: readonly string[]; init?: { stdin?: string } }) => {
-    calls.push({ argv: e.argv, stdin: e.init?.stdin })
-    const r = respond(e.argv, e.init?.stdin)
-    return { value: { exitCode: r.exitCode ?? 0, stdout: r.stdout ?? '', stderr: r.stderr ?? '' } }
-  })
-  on('session.root', () => ({ value: '/proj' }))
-  on('fs.exists', () => ({ value: false }))
-  on('fs.write', (_$: unknown, e: { path: string; text: string }) => {
-    writes[e.path] = e.text
-    return { value: undefined }
-  })
-  return { calls, writes }
-}
+test('一覧は番号で見せ、選択結果は範囲内の重複しない番号だけ通す', () => {
+  const entries = [toEntry(page('a', 'Rust 入門', ['Rust'])), toEntry(page('b', 'Notion メモ'))]
+  expect(entries[0]).toMatchObject({ id: 'a', title: 'Rust 入門', hint: 'Rust, 手順' })
+  expect(formatCatalog(entries)).toBe('[1] Rust 入門 (Rust, 手順)\n[2] Notion メモ (手順)')
+  expect(formatCatalog([])).toBe('(なし)')
+  expect(parseSelection('{"relevant":[2,2,0,9,1.5,"1",1]}', 2, 3)).toEqual([1, 0])
+  expect(parseSelection('{"relevant":[1,2]}', 2, 1)).toEqual([0])
+  expect(parseSelection('not json', 2, 3)).toEqual([])
+  expect(buildSelectPrompt('依頼', entries, 3)).toContain('[2] Notion メモ')
+  expect(buildRecordPrompt('依頼', '回答', entries)).toContain('回答')
+  expect(buildDuplicatePrompt('題', '本文', entries)).toContain('題名: 題')
+})
+
+test('記録の判断は検証を通ったものだけ採用する', () => {
+  const body = 'x'.repeat(80)
+  expect(parseRecord(JSON.stringify({ action: 'create', target: 0, title: ' 題名 ', content: body }), 3)).toEqual({ action: 'create', title: '題名', content: body })
+  expect(parseRecord(JSON.stringify({ action: 'create', target: 0, title: '', content: body }), 3).action).toBe('none')
+  expect(parseRecord(JSON.stringify({ action: 'create', target: 0, title: 't', content: '短い' }), 3).action).toBe('none')
+  expect(parseRecord(JSON.stringify({ action: 'append', target: 2, title: '', content: body }), 3)).toEqual({ action: 'append', target: 1, content: body })
+  expect(parseRecord(JSON.stringify({ action: 'append', target: 4, title: '', content: body }), 3).action).toBe('none')
+  expect(parseRecord('{', 3).action).toBe('none')
+})
+
+test('秘密情報らしいものと短い入力は対象外', () => {
+  expect(looksSensitive('token: abcdef123456')).toBe(true)
+  expect(looksSensitive('key sk-abcdefghijklmnopqrstu')).toBe(true)
+  expect(looksSensitive('ghp_abcdefghijklmnopqrstuvwx')).toBe(true)
+  expect(looksSensitive('data source の使い方')).toBe(false)
+  expect(isTrivial('/goal x', 3)).toBe(true)
+  expect(isTrivial('hi', 8)).toBe(true)
+  expect(isTrivial('Rust の借用について', 8)).toBe(false)
+  expect(buildContext([{ title: 'A', url: 'u', body: 'x'.repeat(100) }], 1000)).toContain('### A')
+})
 
 const DS = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 const DB = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
-const dsJson = JSON.stringify({ object: 'data_source', title: [{ plain_text: 'ナレッジ' }], properties: { 名前: { type: 'title' }, タグ: { type: 'multi_select' } } })
-const dbJson = JSON.stringify({ object: 'database', data_sources: [{ id: DS, name: 'ナレッジ' }] })
-const path = (argv: readonly string[]) => argv[2] ?? ''
+const CATALOG = [page('p1', 'Notion API の data source 移行メモ', ['Notion']), page('p2', 'Rust の借用', ['Rust'])]
 
-test('record_knowledge: 同じ題名があれば作らず、なければ data source に作る', async ($: any, on: any) => {
-  let existing: object[] = [{ object: 'page', id: ID, url: 'u', last_edited_time: 't', properties: { 名前: { type: 'title', title: [{ plain_text: 'Rust 入門' }] } } }]
-  const { calls } = setup(on, argv => {
-    if (path(argv) === `v1/databases/${DB}`) return { stdout: dbJson }
-    if (path(argv) === `v1/data_sources/${DS}`) return { stdout: dsJson }
-    if (path(argv) === `v1/data_sources/${DS}/query`) return { stdout: JSON.stringify({ results: existing }) }
-    if (path(argv) === 'v1/pages') return { stdout: JSON.stringify({ id: 'new-id', url: 'new-url' }) }
-    return { exitCode: 1, stderr: 'unexpected' }
+type Call = { argv: readonly string[]; stdin: string | undefined }
+
+const setup = (on: any, models: (prompt: string) => string, opts: { catalog?: object[]; modelOk?: boolean } = {}) => {
+  const clock = mock.clock(on)
+  const calls: Call[] = []
+  const toasts: string[] = []
+  const asked: string[] = []
+  on('process.run', (_$: unknown, e: { argv: readonly string[]; init?: { stdin?: string } }) => {
+    calls.push({ argv: e.argv, stdin: e.init?.stdin })
+    const out = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '' } })
+    if (e.argv[1] === 'whoami') return out('me')
+    if (e.argv[1] === 'pages') return out(`本文 of ${e.argv[3]}`)
+    const p = e.argv[2]
+    if (p === `v1/databases/${DB}`) return out(JSON.stringify({ data_sources: [{ id: DS }] }))
+    if (p === `v1/data_sources/${DS}`) return out(JSON.stringify({ properties: { 名前: { type: 'title' } } }))
+    if (p === `v1/data_sources/${DS}/query`) return out(JSON.stringify({ results: JSON.parse(e.init!.stdin!).filter === undefined ? (opts.catalog ?? CATALOG) : [] }))
+    if (p === 'v1/pages' || p?.endsWith('/markdown')) return out('{}')
+    return { value: { exitCode: 1, stdout: '', stderr: `unexpected ${p}` } }
   })
-  const record = (title: string) =>
-    $.tool.call({ tool: 'mcp__notion-knowledge__record_knowledge', title, content: '本文', properties: { タグ: ['a'] }, database_id: DB })
-
-  const dup = await record('ｒｕｓｔ 入門')
-  expect(dup.result).toContain('作成していない')
-  expect(calls.some(c => path(c.argv) === 'v1/pages')).toBe(false)
-
-  existing = []
-  const created = await record('新しい知識')
-  expect(created.result).toContain('new-id')
-  const post = calls.find(c => path(c.argv) === 'v1/pages')!
-  expect(post.argv).toContain('@-')
-  expect(JSON.parse(post.stdin!)).toEqual({
-    parent: { type: 'data_source_id', data_source_id: DS },
-    properties: { タグ: { multi_select: [{ name: 'a' }] }, 名前: { title: [{ text: { content: '新しい知識' } }] } },
-    markdown: '本文',
+  on('http.fetch', (_$: unknown, e: { init?: { body?: string } }) => {
+    if (opts.modelOk === false) return { value: { ok: false, status: 500, headers: {}, text: '' } }
+    const content = JSON.parse(e.init!.body!).messages[0].content as string
+    asked.push(content)
+    return { value: { ok: true, status: 200, headers: {}, text: JSON.stringify({ message: { content: models(content) } }) } }
   })
+  on('ui.toast', (_$: unknown, e: { text?: string; message?: string }) => {
+    toasts.push(e.text ?? e.message ?? '')
+    return { value: undefined }
+  })
+  on('ui.log', () => ({ value: undefined }))
+  on('prompt.submit', (_$: unknown, e: { text: string; context?: readonly string[] }) => ({ text: e.text, context: e.context }))
+  on('turn.complete', (_$: unknown, e: { answer: string }) => ({ text: e.answer }))
+  return { clock, calls, toasts, asked }
+}
+
+const OPTS = { options: { databaseId: DB } }
+const writes = (calls: Call[]) => calls.filter(c => c.argv[2] === 'v1/pages' || c.argv[2]?.endsWith('/markdown'))
+const complete = ($: any, answer: string, extra: object = {}) =>
+  $.turn.complete({ answer, durationMs: 1, isAborted: false, turnId: 't', reason: 'answer', ...extra })
+
+test('プロンプトに関係するナレッジを tev に選ばせ、本文を context に添付する', OPTS, async ($: any, on: any) => {
+  const { toasts, asked } = setup(on, () => '{"relevant":[1]}')
+  const r = await $.prompt.submit({ text: 'databases の query が 404 になる' })
+  expect(asked[0]).toContain('[1] Notion API の data source 移行メモ')
+  expect(r.context?.[0]).toContain('本文 of p1')
+  expect(r.context?.[0]).toContain('### Notion API の data source 移行メモ')
+  expect(toasts.join()).toContain('1 件のナレッジを添付')
 })
 
-test('record_knowledge: 存在しないプロパティと複数 data source は書き込み前に止める', async ($: any, on: any) => {
-  let sources: object[] = [{ id: DS }, { id: DB, name: '別' }]
-  const { calls } = setup(on, argv => {
-    if (path(argv) === `v1/databases/${DB}`) return { stdout: JSON.stringify({ data_sources: sources }) }
-    if (path(argv) === `v1/data_sources/${DS}`) return { stdout: dsJson }
-    return { exitCode: 1, stderr: 'unexpected' }
-  })
-  const multi = await $.tool.call({ tool: 'mcp__notion-knowledge__record_knowledge', title: 't', database_id: DB })
-  expect(multi.deny).toContain('data_source_id で選ぶ')
-
-  sources = [{ id: DS }]
-  const bad = await $.tool.call({ tool: 'mcp__notion-knowledge__record_knowledge', title: 't', database_id: DB, properties: { ない: 'x' } })
-  expect(bad.deny).toContain('存在しない')
-  expect(calls.some(c => path(c.argv) === 'v1/pages')).toBe(false)
+test('該当なし・短い入力・コマンド・割り込み中の送信では何も添付しない', OPTS, async ($: any, on: any) => {
+  const { asked } = setup(on, () => '{"relevant":[]}')
+  expect((await $.prompt.submit({ text: 'databases の query が 404 になる' })).context).toBeUndefined()
+  expect(asked).toHaveLength(1)
+  await $.prompt.submit({ text: 'おはよう' })
+  await $.prompt.submit({ text: '/goal 長い目標の文面です' })
+  await $.prompt.submit({ text: '割り込みの長い文面です', turnId: 't1' })
+  expect(asked).toHaveLength(1)
 })
 
-test('revise_knowledge: replace は退避してから置換し、入力が足りなければ書き込まない', async ($: any, on: any) => {
-  const { calls, writes } = setup(on, argv => {
-    if (argv[1] === 'pages') return { stdout: '---\n名前: x\n---\n旧本文' }
-    if (path(argv) === `v1/pages/${ID}/markdown`) return { stdout: JSON.stringify({ markdown: '新本文', unknown_block_ids: [] }) }
-    return { exitCode: 1, stderr: 'unexpected' }
-  })
-  const revise = (input: object) => $.tool.call({ tool: 'mcp__notion-knowledge__revise_knowledge', page_id: ID, ...input })
-
-  expect((await revise({})).deny).toContain('properties か mode')
-  expect((await revise({ mode: 'replace' })).deny).toContain('content が必要')
-  expect((await revise({ mode: 'edit', edits: [{ old_str: '', new_str: 'x' }] })).deny).toContain('old_str')
+test('database 未設定なら何もしない', async ($: any, on: any) => {
+  const { calls, asked } = setup(on, () => '{"relevant":[1]}')
+  expect((await $.prompt.submit({ text: '長い文面のプロンプトです' })).context).toBeUndefined()
   expect(calls).toHaveLength(0)
-
-  const r = await revise({ mode: 'replace', content: '新本文' })
-  expect(r.deny).toBeUndefined()
-  expect(r.result).toContain('全文を置換した')
-  expect(Object.keys(writes).sort()).toEqual([
-    expect.stringMatching(/^\/proj\/\.claude\/notion-snapshots\/.*\.md$/),
-    '/proj/.claude/notion-snapshots/.gitignore',
-  ].sort())
-  expect(Object.values(writes)).toContain('---\n名前: x\n---\n旧本文')
-  const patch = calls.find(c => path(c.argv) === `v1/pages/${ID}/markdown`)!
-  expect(JSON.parse(patch.stdin!).replace_content.allow_deleting_content).toBe(false)
-  // 退避 (pages get) が置換 (PATCH) より先
-  expect(calls.findIndex(c => c.argv[1] === 'pages')).toBeLessThan(calls.indexOf(patch))
+  expect(asked).toHaveLength(0)
 })
 
-test('revise_knowledge: 退避に失敗したら置換しない', async ($: any, on: any) => {
-  const { calls } = setup(on, argv => (argv[1] === 'pages' ? { exitCode: 1, stderr: 'boom' } : { stdout: '{}' }))
-  const r = await $.tool.call({ tool: 'mcp__notion-knowledge__revise_knowledge', page_id: ID, mode: 'replace', content: 'x' })
-  expect(r.deny).toContain('boom')
-  expect(calls.some(c => path(c.argv).endsWith('/markdown'))).toBe(false)
+test('ollama が失敗してもプロンプトはそのまま通り、失敗後はしばらく問い合わせない', OPTS, async ($: any, on: any) => {
+  const { calls } = setup(on, () => '{}', { modelOk: false })
+  const fetches = () => calls.filter(c => c.argv[2] === `v1/data_sources/${DS}/query`).length
+  expect((await $.prompt.submit({ text: '長い文面のプロンプトです' })).context).toBeUndefined()
+  expect((await $.prompt.submit({ text: '二つ目の長い文面です' })).context).toBeUndefined()
+  expect(fetches()).toBe(1)
 })
 
-test('find_knowledge: データベース未指定ならワークスペース検索、指定なら題名の部分一致で続きも辿る', async ($: any, on: any) => {
-  const row = (n: number) => ({ object: 'page', id: `id-${n}`, url: 'u', last_edited_time: 't', properties: { 名前: { type: 'title', title: [{ plain_text: `p${n}` }] } } })
-  const { calls } = setup(on, (argv, stdin) => {
-    if (path(argv) === 'v1/search') return { stdout: JSON.stringify({ results: [row(0)], has_more: false }) }
-    if (path(argv) === `v1/databases/${DB}`) return { stdout: dbJson }
-    if (path(argv) === `v1/data_sources/${DS}`) return { stdout: dsJson }
-    if (path(argv) === `v1/data_sources/${DS}/query`) {
-      const first = JSON.parse(stdin!).start_cursor === undefined
-      return { stdout: JSON.stringify(first ? { results: [row(1)], has_more: true, next_cursor: 'c2' } : { results: [row(2)], has_more: false }) }
-    }
-    return { exitCode: 1, stderr: 'unexpected' }
+test('記録: 新しい知識は tev の判断で新規ページになり、秘密情報は書かれない', OPTS, async ($: any, on: any) => {
+  const body = '- data_sources[] の id を取り、POST /v1/data_sources/{id}/query を呼ぶ\n- [0] を決め打ちしない'
+  const decide = (prompt: string) =>
+    prompt.startsWith('新しく記録しようとしている')
+      ? '{"relevant":[]}'
+      : prompt.startsWith('あなたはナレッジ記録係')
+        ? JSON.stringify({ action: 'create', target: 0, title: 'Notion の query 手順', content: body })
+        : '{"relevant":[]}'
+  const { clock, calls, toasts } = setup(on, decide)
+
+  await $.prompt.submit({ text: 'database の query 方法を調べて' })
+  await complete($, 'あ'.repeat(300))
+  await clock.advance(10)
+
+  const [post] = writes(calls)
+  expect(post!.argv[2]).toBe('v1/pages')
+  expect(JSON.parse(post!.stdin!)).toMatchObject({
+    parent: { type: 'data_source_id', data_source_id: DS },
+    properties: { 名前: { title: [{ text: { content: 'Notion の query 手順' } }] } },
   })
-  const ws = await $.tool.call({ tool: 'mcp__notion-knowledge__find_knowledge', query: 'p' })
-  expect(ws.result).toContain('p0')
-  expect(JSON.parse(calls[0]!.stdin!).filter).toEqual({ property: 'object', value: 'page' })
-
-  const db = await $.tool.call({ tool: 'mcp__notion-knowledge__find_knowledge', query: 'p', database_id: DB })
-  expect(db.result).toContain('2 件')
-  const queries = calls.filter(c => path(c.argv) === `v1/data_sources/${DS}/query`)
-  expect(queries).toHaveLength(2)
-  expect(JSON.parse(queries[0]!.stdin!).filter).toEqual({ property: '名前', title: { contains: 'p' } })
-  expect(JSON.parse(queries[1]!.stdin!).start_cursor).toBe('c2')
+  expect(JSON.parse(post!.stdin!).markdown).toContain(body)
+  expect(toasts.join()).toContain('新規に記録した')
 })
 
-test('ntn の失敗は deny で返す', async ($: any, on: any) => {
-  setup(on, () => ({ exitCode: 1, stderr: 'unauthorized' }))
-  expect((await $.tool.call({ tool: 'mcp__notion-knowledge__read_knowledge', page_id: ID })).deny).toContain('unauthorized')
-  expect((await $.tool.call({ tool: 'mcp__notion-knowledge__read_knowledge', page_id: 'zzz' })).deny).toContain('page_id')
+test('記録: 既存と同じ話題なら新規作成せず追記し、none・秘密情報・サブエージェントは書かない', OPTS, async ($: any, on: any) => {
+  const body = '- 具体的な事実を十分な長さで書いた追記内容。keep_alive を 0 にすると応答直後にアンロードされる。既定は 5 分で、環境変数 OLLAMA_KEEP_ALIVE でも指定できる'
+  let mode: 'create' | 'none' | 'secret' = 'create'
+  const { clock, calls } = setup(on, prompt => {
+    if (prompt.startsWith('新しく記録しようとしている')) return '{"relevant":[1]}'
+    if (mode === 'none') return JSON.stringify({ action: 'none', target: 0, title: '', content: '' })
+    return JSON.stringify({ action: 'create', target: 0, title: '新題', content: mode === 'secret' ? `token: abcdef123456 ${body}` : body })
+  })
+
+  await $.prompt.submit({ text: '最初の長い質問の文面です' })
+  await complete($, 'あ'.repeat(300))
+  await clock.advance(10)
+  const [patch] = writes(calls)
+  expect(patch!.argv[2]).toBe('v1/pages/p1/markdown')
+  expect(JSON.parse(patch!.stdin!).insert_content.content).toContain('### 新題')
+  expect(JSON.parse(patch!.stdin!).insert_content.position).toEqual({ type: 'end' })
+
+  mode = 'none'
+  await $.prompt.submit({ text: '二つ目の長い質問の文面です' })
+  await complete($, 'あ'.repeat(300))
+  mode = 'secret'
+  await $.prompt.submit({ text: '三つ目の長い質問の文面です' })
+  await complete($, 'あ'.repeat(300))
+  await $.prompt.submit({ text: '四つ目の長い質問の文面です' })
+  await complete($, 'あ'.repeat(300), { agentId: 'sub' })
+  await complete($, '短い回答')
+  await clock.advance(10)
+  expect(writes(calls)).toHaveLength(1)
 })

@@ -1,16 +1,38 @@
-export type Config = { databaseId: string | undefined; maxChars: number; maxPages: number }
+export type Config = {
+  databaseId: string | undefined
+  autoRecord: boolean
+  ollamaUrl: string
+  models: string[]
+  timeoutMs: number
+  keepAlive: string
+  catalogSize: number
+  maxPages: number
+  maxChars: number
+}
 
 const clamp = (v: unknown, fallback: number, min: number, max: number): number => {
   const n = Number(v)
   return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.trunc(n))) : fallback
 }
 
-export const readConfig = (options: Record<string, unknown> | undefined): Config => {
-  const id = typeof options?.databaseId === 'string' ? normalizeId(options.databaseId) : undefined
+export const readConfig = (o: Record<string, unknown> | undefined): Config => {
+  const models =
+    typeof o?.models === 'string'
+      ? o.models
+          .split(',')
+          .map(s => s.trim())
+          .filter(s => s !== '')
+      : []
   return {
-    databaseId: id,
-    maxChars: clamp(options?.maxChars, 30000, 1000, 200000),
-    maxPages: clamp(options?.maxPages, 5, 1, 50),
+    databaseId: typeof o?.databaseId === 'string' ? normalizeId(o.databaseId) : undefined,
+    autoRecord: !(o?.autoRecord === false || o?.autoRecord === 'false'),
+    ollamaUrl: (typeof o?.ollamaUrl === 'string' && o.ollamaUrl !== '' ? o.ollamaUrl : 'http://localhost:11434').replace(/\/+$/, ''),
+    models: models.length > 0 ? models : ['tev1:4b'],
+    timeoutMs: clamp(o?.timeoutSeconds, 40, 5, 180) * 1000,
+    keepAlive: typeof o?.keepAlive === 'string' && o.keepAlive !== '' ? o.keepAlive : '5m',
+    catalogSize: clamp(o?.catalogSize, 100, 10, 300),
+    maxPages: clamp(o?.maxPages, 3, 1, 10),
+    maxChars: clamp(o?.maxChars, 12000, 1000, 60000),
   }
 }
 
@@ -20,7 +42,7 @@ const HEX32 = /(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/gi
 /** URL・32 桁の 16 進数・ダッシュ付き UUID のいずれからも、ダッシュ付き UUID を取り出す。 */
 export const normalizeId = (input: unknown): string | undefined => {
   if (typeof input !== 'string') return undefined
-  // `?v=` 以降はビューの ID なので、ページ・データベースの ID とは別に切り落とす
+  // `?v=` 以降はビューの ID なので切り落とす
   const path = input.trim().split(/[?#]/)[0] ?? ''
   const dashed = path.match(UUID)
   if (dashed !== null) return dashed[dashed.length - 1]!.toLowerCase()
@@ -37,31 +59,22 @@ export const apiArgs = (path: string, method: 'GET' | 'POST' | 'PATCH', hasBody:
 
 export const pagesGetArgs = (pageId: string): string[] => ['ntn', 'pages', 'get', pageId]
 
-export type NotionProperty = { type: string; name?: string; [k: string]: unknown }
-export type Schema = Record<string, NotionProperty>
+export type NotionProperty = { type: string; [k: string]: unknown }
 
-export const titlePropertyName = (schema: Schema): string | undefined =>
+export const titlePropertyName = (schema: Record<string, NotionProperty>): string | undefined =>
   Object.entries(schema).find(([, p]) => p.type === 'title')?.[0]
 
-export const searchBody = (query: string | undefined, limit: number, cursor?: string) => ({
-  filter: { property: 'object', value: 'page' },
-  ...(query === undefined || query.trim() === '' ? {} : { query: query.trim() }),
+export const queryBody = (limit: number, filter?: unknown) => ({
+  ...(filter === undefined ? {} : { filter }),
+  sorts: [{ timestamp: 'last_edited_time', direction: 'descending' }],
   page_size: Math.min(100, limit),
-  ...(cursor === undefined ? {} : { start_cursor: cursor }),
-})
-
-export const queryBody = (opts: { filter?: unknown; sorts?: unknown; limit: number; cursor?: string }) => ({
-  ...(opts.filter === undefined ? {} : { filter: opts.filter }),
-  sorts: opts.sorts ?? [{ timestamp: 'last_edited_time', direction: 'descending' }],
-  page_size: Math.min(100, opts.limit),
-  ...(opts.cursor === undefined ? {} : { start_cursor: opts.cursor }),
 })
 
 export const titleContains = (titleProp: string, text: string) => ({ property: titleProp, title: { contains: text } })
 
 export const normalizeTitle = (s: string): string => s.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
 
-/** タイトルに揺れがあっても同じ題名として扱う。 */
+/** 全角半角・大文字小文字・空白の違いを無視して、同じ題名か判定する。 */
 export const sameTitle = (a: string, b: string): boolean => normalizeTitle(a) === normalizeTitle(b)
 
 /** rich_text 1 要素の上限は 2000 文字。 */
@@ -71,188 +84,182 @@ export const richText = (text: string): { text: { content: string } }[] => {
   return chunks
 }
 
-const READ_ONLY = new Set([
-  'formula', 'rollup', 'created_time', 'created_by', 'last_edited_time', 'last_edited_by', 'unique_id', 'verification', 'button',
-])
-
-const asList = (v: unknown): string[] =>
-  Array.isArray(v) ? v.map(String) : typeof v === 'string' ? v.split(',').map(s => s.trim()).filter(s => s !== '') : [String(v)]
-
-/** 平易な値を、プロパティの型に合わせた Notion の値に変える。null は値のクリア。 */
-export const toPropertyValue = (name: string, type: string, value: unknown): unknown => {
-  if (READ_ONLY.has(type)) throw new Error(`プロパティ「${name}」(${type}) は読み取り専用で書き込めない`)
-  const bad = (hint: string): never => {
-    throw new Error(`プロパティ「${name}」(${type}) の値が不正: ${hint}`)
-  }
-  if (value === null) {
-    if (type === 'title') return bad('title は空にできない')
-    if (type === 'rich_text') return { rich_text: [] }
-    if (type === 'multi_select') return { multi_select: [] }
-    if (type === 'relation') return { relation: [] }
-    if (type === 'files') return { files: [] }
-    if (type === 'people') return { people: [] }
-    return { [type]: null }
-  }
-  switch (type) {
-    case 'title':
-    case 'rich_text':
-      return { [type]: richText(String(value)) }
-    case 'number': {
-      const n = typeof value === 'number' ? value : Number(value)
-      return Number.isFinite(n) ? { number: n } : bad('数値を渡す')
-    }
-    case 'select':
-    case 'status':
-      return { [type]: { name: String(value) } }
-    case 'multi_select':
-      return { multi_select: asList(value).map(name => ({ name })) }
-    case 'checkbox':
-      return value === true || value === 'true' ? { checkbox: true } : value === false || value === 'false' ? { checkbox: false } : bad('true / false を渡す')
-    case 'date': {
-      const [start, end] = String(value).split('/')
-      return { date: { start: start!.trim(), ...(end === undefined || end.trim() === '' ? {} : { end: end.trim() }) } }
-    }
-    case 'url':
-    case 'email':
-    case 'phone_number':
-      return { [type]: String(value) }
-    case 'relation':
-      return {
-        relation: asList(value).map(v => {
-          const id = normalizeId(v)
-          return id === undefined ? bad(`関連先のページ ID が読み取れない: ${v}`) : { id }
-        }),
-      }
-    default:
-      return bad('この型は未対応')
-  }
-}
-
-/** { プロパティ名: 平易な値 } をスキーマに照らして Notion の properties にする。 */
-export const buildProperties = (schema: Schema, values: Record<string, unknown>): Record<string, unknown> => {
-  const out: Record<string, unknown> = {}
-  for (const [name, value] of Object.entries(values)) {
-    const prop = schema[name]
-    if (prop === undefined) throw new Error(`プロパティ「${name}」は存在しない。使えるのは: ${Object.keys(schema).join(', ')}`)
-    out[name] = toPropertyValue(name, prop.type, value)
-  }
-  return out
-}
+export type Entry = { id: string; title: string; url: string; hint: string }
 
 type Rich = { plain_text?: string }[]
 const plain = (r: unknown): string => (Array.isArray(r) ? (r as Rich).map(t => t.plain_text ?? '').join('') : '')
 
-/** 一覧表示用に、プロパティの値を 1 行の文字列にする。空なら undefined。 */
-export const showProperty = (p: any): string | undefined => {
-  const v = p?.[p?.type]
-  switch (p?.type) {
-    case 'title':
-    case 'rich_text':
-      return plain(v) || undefined
-    case 'select':
-    case 'status':
-      return v?.name
-    case 'multi_select':
-      return v?.length ? v.map((o: { name: string }) => o.name).join(', ') : undefined
-    case 'number':
-    case 'url':
-    case 'email':
-    case 'phone_number':
-      return v === null || v === undefined ? undefined : String(v)
-    case 'checkbox':
-      return v === true ? 'true' : 'false'
-    case 'date':
-      return v?.start === undefined ? undefined : v.end ? `${v.start} → ${v.end}` : v.start
-    case 'people':
-      return v?.length ? v.map((u: { name?: string; id: string }) => u.name ?? u.id).join(', ') : undefined
-    case 'relation':
-      return v?.length ? `${v.length} 件` : undefined
-    case 'created_time':
-    case 'last_edited_time':
-      return typeof v === 'string' ? v : undefined
-    default:
-      return undefined
-  }
-}
-
-export type PageSummary = { id: string; url: string; title: string; edited: string; props: [string, string][] }
-
-export const summarizePage = (page: any): PageSummary => {
-  const props: [string, string][] = []
+/** ページから、題名と、分類の手がかりになるタグ類 (select / multi_select) を取り出す。 */
+export const toEntry = (page: any): Entry => {
   let title = ''
-  for (const [name, p] of Object.entries<any>(page?.properties ?? {})) {
+  const hints: string[] = []
+  for (const p of Object.values<any>(page?.properties ?? {})) {
     if (p?.type === 'title') title = plain(p.title)
-    else {
-      const s = showProperty(p)
-      if (s !== undefined) props.push([name, s])
+    else if (p?.type === 'multi_select') hints.push(...(p.multi_select ?? []).map((o: { name: string }) => o.name))
+    else if (p?.type === 'select' && p.select?.name) hints.push(p.select.name)
+  }
+  return { id: page?.id ?? '', title, url: page?.url ?? '', hint: hints.join(', ') }
+}
+
+const TITLE_LIMIT = 80
+
+/** モデルには UUID ではなく 1 始まりの番号を見せる。 */
+export const formatCatalog = (entries: readonly Entry[]): string =>
+  entries.length === 0
+    ? '(なし)'
+    : entries
+        .map((e, i) => `[${i + 1}] ${(e.title || '(無題)').slice(0, TITLE_LIMIT)}${e.hint === '' ? '' : ` (${e.hint})`}`)
+        .join('\n')
+
+const PROMPT_LIMIT = 3000
+const ANSWER_LIMIT = 4000
+
+export const SELECT_SCHEMA = {
+  type: 'object',
+  properties: { relevant: { type: 'array', items: { type: 'integer' } } },
+  required: ['relevant'],
+}
+
+export const buildSelectPrompt = (prompt: string, entries: readonly Entry[], max: number): string =>
+  [
+    'あなたはナレッジベースの検索係。ユーザーの依頼に答えるのに役立ちそうな既存ナレッジを、一覧から選ぶ。',
+    '',
+    'ルール:',
+    '- 依頼の主題・技術・固有名詞に関係するナレッジだけを選ぶ。関係が薄いものは選ばない',
+    `- 最大 ${max} 件。該当がなければ空の配列`,
+    '- 挨拶・雑談・一般的な質問では選ばない',
+    '- 番号だけを relevant に入れる',
+    '',
+    'ナレッジ一覧:',
+    formatCatalog(entries),
+    '',
+    '依頼:',
+    prompt.slice(0, PROMPT_LIMIT),
+  ].join('\n')
+
+export const parseSelection = (text: string, count: number, max: number): number[] => {
+  try {
+    const v = (JSON.parse(text) as { relevant?: unknown }).relevant
+    if (!Array.isArray(v)) return []
+    const picked = [...new Set(v.filter((n): n is number => Number.isInteger(n) && n >= 1 && n <= count))]
+    return picked.slice(0, max).map(n => n - 1)
+  } catch {
+    return []
+  }
+}
+
+/** create と判断された内容が、既存ナレッジと同じ話題かを聞く。答えは SELECT_SCHEMA で受ける。 */
+export const buildDuplicatePrompt = (title: string, content: string, entries: readonly Entry[]): string =>
+  [
+    '新しく記録しようとしているナレッジが、既存のナレッジ一覧のどれかと同じ話題か判定する。',
+    '',
+    'ルール:',
+    '- 主題 (技術・製品・問題) が同じなら、細部が違っても同じ話題とみなし、その番号を 1 つだけ relevant に入れる',
+    '- どれとも主題が違うときだけ、空の配列にする',
+    '',
+    '既存のナレッジ一覧:',
+    formatCatalog(entries),
+    '',
+    '新しいナレッジ:',
+    `題名: ${title}`,
+    content.slice(0, 1500),
+  ].join('\n')
+
+export type Decision =
+  | { action: 'none' }
+  | { action: 'create'; title: string; content: string }
+  | { action: 'append'; target: number; content: string }
+
+export const RECORD_SCHEMA = {
+  type: 'object',
+  properties: {
+    action: { type: 'string', enum: ['none', 'create', 'append'] },
+    target: { type: 'integer' },
+    title: { type: 'string' },
+    content: { type: 'string' },
+  },
+  required: ['action', 'target', 'title', 'content'],
+}
+
+export const buildRecordPrompt = (prompt: string, answer: string, entries: readonly Entry[]): string =>
+  [
+    'あなたはナレッジ記録係。ユーザーの依頼と AI の回答を読み、今後も役立つ知識が含まれるか判断する。',
+    '',
+    '記録する: 決定とその理由、原因を突き止めた不具合、自明でない罠や制約、調査の結論、再利用できる手順',
+    '記録しない: 挨拶・雑談、作業の途中経過、コードを読めば分かること、一般常識、秘密情報 (キー・トークン・パスワード・個人情報)',
+    '',
+    'action:',
+    '- none: 記録しない。target は 0、title と content は空文字',
+    '- append: 一覧に題名の近い・同じ話題のナレッジがある。target にその番号、content に追記する内容だけを書く。title は空文字',
+    '- create: 一覧のどれとも話題が違う新しい知識。title に題名、content に書く。target は 0',
+    '',
+    'content の書き方:',
+    '- 回答に書かれた具体的な事実 (値・コマンド・エラー・理由・手順) を省略せず、箇条書きで写す',
+    '- 題名の言い換えや、抽象的な要約だけにしない',
+    '- 根拠の URL が回答にあれば残す',
+    '一覧にある内容の言い直しや重複は記録しない。迷ったら none。',
+    '',
+    '既存のナレッジ一覧:',
+    formatCatalog(entries),
+    '',
+    '依頼:',
+    prompt.slice(0, PROMPT_LIMIT),
+    '',
+    '回答:',
+    answer.slice(0, ANSWER_LIMIT),
+  ].join('\n')
+
+const MIN_CONTENT = 60
+
+export const parseRecord = (text: string, count: number): Decision => {
+  try {
+    const v = JSON.parse(text) as { action?: unknown; target?: unknown; title?: unknown; content?: unknown }
+    const content = typeof v.content === 'string' ? v.content.trim() : ''
+    if (v.action === 'create' && typeof v.title === 'string' && v.title.trim() !== '' && content.length >= MIN_CONTENT) {
+      return { action: 'create', title: v.title.trim().slice(0, 100), content }
     }
+    if (v.action === 'append' && Number.isInteger(v.target) && (v.target as number) >= 1 && (v.target as number) <= count && content.length >= MIN_CONTENT) {
+      return { action: 'append', target: (v.target as number) - 1, content }
+    }
+  } catch {
+    // 不正な応答は記録しない扱いにする
   }
-  return { id: page?.id ?? '', url: page?.url ?? '', title, edited: page?.last_edited_time ?? '', props }
+  return { action: 'none' }
 }
 
-export const formatPages = (pages: readonly PageSummary[], more: boolean): string => {
-  if (pages.length === 0) return '該当するページは見つからなかった。'
-  const lines = pages.flatMap(p => [
-    `- ${p.title || '(無題)'}`,
-    `  id: ${p.id}`,
-    `  url: ${p.url}`,
-    `  更新: ${p.edited}`,
-    ...p.props.map(([k, v]) => `  ${k}: ${v.length > 120 ? `${v.slice(0, 120)}…` : v}`),
-  ])
-  return [`${pages.length} 件${more ? ' (まだ続きがある。query や filter を絞るか limit を増やす)' : ''}`, ...lines].join('\n')
-}
+/** 秘密情報らしい文字列。見つかったら記録しない。 */
+const SECRET = /sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|(?:password|passwd|secret|api[_-]?key|token)\s*[:=]\s*\S{6,}|secret_[A-Za-z0-9]{20,}|ntn_[A-Za-z0-9]{20,}/i
 
-export const formatSchema = (schema: Schema): string =>
-  Object.entries(schema)
-    .map(([name, p]) => {
-      const options = ((p[p.type] as { options?: { name: string }[] } | undefined)?.options ?? []).map(o => o.name)
-      return `- ${name} (${p.type})${options.length > 0 ? `: ${options.join(' / ')}` : ''}`
-    })
-    .join('\n')
+export const looksSensitive = (text: string): boolean => SECRET.test(text)
 
-export type ContentMode = 'append' | 'edit' | 'replace'
-export type Edit = { old_str: string; new_str: string; replace_all?: boolean }
+/** 取得・記録の対象にしない短い入力やコマンド。 */
+export const isTrivial = (text: string, min: number): boolean => text.trim().startsWith('/') || text.trim().length < min
 
-/** `PATCH /v1/pages/{id}/markdown` の本文。子ページ・子データベースの削除は常に許可しない。 */
-export const markdownBody = (mode: ContentMode, input: { content?: string; edits?: readonly Edit[] }): object => {
-  switch (mode) {
-    case 'append':
-      return { type: 'insert_content', insert_content: { content: input.content ?? '', position: { type: 'end' } } }
-    case 'replace':
-      return { type: 'replace_content', replace_content: { new_str: input.content ?? '', allow_deleting_content: false } }
-    case 'edit':
-      return {
-        type: 'update_content',
-        update_content: {
-          content_updates: (input.edits ?? []).map(e => ({
-            old_str: e.old_str,
-            new_str: e.new_str,
-            ...(e.replace_all === true ? { replace_all_matches: true } : {}),
-          })),
-          allow_deleting_content: false,
-        },
-      }
-  }
-}
+export const MIN_PROMPT_CHARS = 8
+export const MIN_ANSWER_CHARS = 200
 
 export const clipText = (text: string, max: number): string =>
   text.length <= max ? text : `${text.slice(0, max)}\n... 全 ${text.length} 文字のうち先頭 ${max} 文字のみ。`
 
-export const snapshotName = (iso: string, pageId: string): string => `${iso.replace(/[:.]/g, '-')}-${pageId}.md`
+/** 取得したページを、上限に収まるよう均等に切り詰めて 1 つの文脈にする。 */
+export const buildContext = (pages: readonly { title: string; url: string; body: string }[], maxChars: number): string => {
+  const each = Math.floor(maxChars / Math.max(1, pages.length))
+  return [
+    '## 関連するナレッジ (Notion)',
+    'ユーザーのナレッジベースから、この依頼に関係しそうなページを取得した。役に立つ場合だけ参考にし、古い可能性がある点は現状と照らして確認すること。',
+    ...pages.map(p => `\n### ${p.title || '(無題)'}\n${p.url}\n\n${clipText(p.body.trim(), each)}`),
+  ].join('\n')
+}
 
-export const SNAPSHOT_DIR = '.claude/notion-snapshots'
+export const buildChatBody = (cfg: Config, model: string, format: object, content: string): string =>
+  JSON.stringify({
+    model,
+    stream: false,
+    think: false,
+    format,
+    keep_alive: cfg.keepAlive,
+    options: { temperature: 0 },
+    messages: [{ role: 'user', content }],
+  })
 
-export const guidance = [
-  'Notion のナレッジベースが使える。次のツールで読み書きする。',
-  '- mcp__notion-knowledge__find_knowledge: 記録済みの知識を探す (title の部分一致、filter、sorts)',
-  '- mcp__notion-knowledge__read_knowledge: ページ本文を Markdown で読む',
-  '- mcp__notion-knowledge__knowledge_schema: データベースのプロパティ (名前・型・選択肢) を調べる',
-  '- mcp__notion-knowledge__record_knowledge: 新しいページを作る。同じ題名があれば作らず既存を返す',
-  '- mcp__notion-knowledge__revise_knowledge: 既存ページのプロパティと本文 (append / edit / replace) を更新する',
-  '使い方の方針:',
-  '- 調べ物や設計判断に入る前に、find_knowledge で既存の知識を確認し、関係するページは read_knowledge で読んでから答える',
-  '- 次のような、後で役に立つ知識が得られたら記録する: 決定とその理由、原因を突き止めた不具合、自明でない罠や制約、調査の結論',
-  '- 作る前に find_knowledge で同じ話題がないか確認する。あれば record_knowledge ではなく revise_knowledge で追記・修正する',
-  '- 記録には根拠 (出典の URL、確認したコマンドや日付) を添える。推測は推測と書く',
-  '- 一時的なメモ、会話の経緯、コードを読めば分かることは記録しない',
-].join('\n')
+export const FAILURE_BACKOFF_MS = 60_000

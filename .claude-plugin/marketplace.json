@@ -48,7 +48,7 @@
     {
       "name": "notion-knowledge",
       "source": "./plugins/notion-knowledge",
-      "description": "ntn と Notion API で Notion データベースをナレッジベースとして使い、記録・更新・検索・読み取りを行うツールをモデルに提供する"
+      "description": "Notion データベースをナレッジベースにし、ollama の tev1:4b の判断で、プロンプトに関係する知識の取得と新しい知識の自動記録を行う"
     }
   ]
 }

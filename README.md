@@ -192,32 +192,32 @@ brew install atani/tap/ctxpack
 
 ## notion-knowledge
 
-Notion のデータベースをナレッジベースとして使う。後で役に立つ知識を記録・更新し、必要なときに検索して読み取るためのツールをモデルに提供する。Notion との通信は [ntn](https://ntn.dev)（Notion CLI）と Notion API で行う。ベースは [ntn-lib](https://github.com/UtakataKyosui/ntn-lib) で、その罠（`databases/{id}/query` は存在しない、`-d` に改行入りの JSON を直接渡すと固まる、作成 API に冪等キーがない、など）を TypeScript に移してある。
+Notion のデータベースをナレッジベースにする。ollama の `tev1:4b` に判断させ、プロンプトに関係する知識の取得と、新しい知識の記録を自動で行う。ツールをモデルに登録するのではなく、フックで割り込む。Notion との通信は [ntn](https://ntn.dev)（Notion CLI）と Notion API で、ベースは [ntn-lib](https://github.com/UtakataKyosui/ntn-lib)。
 
-| ツール | 中身 | 主な引数 |
-|---|---|---|
-| `mcp__notion-knowledge__find_knowledge` | 記録済みのページを探す。データベース指定時は題名の部分一致・filter・sorts でクエリし、未指定ならワークスペースを題名で検索する | `query`、`filter`、`sorts`、`limit`、`database_id`、`data_source_id` |
-| `mcp__notion-knowledge__knowledge_schema` | データベースのプロパティ（名前・型・選択肢）を返す | `database_id`、`data_source_id` |
-| `mcp__notion-knowledge__read_knowledge` | ページをプロパティ付きの Markdown で読む | `page_id`（ID または URL） |
-| `mcp__notion-knowledge__record_knowledge` | データベースに新しいページを作る | `title`、`content`、`properties`、`database_id` |
-| `mcp__notion-knowledge__revise_knowledge` | 既存ページのプロパティと本文を更新する | `page_id`、`properties`、`mode`（`append` / `edit` / `replace`）、`content`、`edits` |
+| 場面 | 仕組み |
+|---|---|
+| プロンプト送信時（取得） | 更新の新しい順に `catalogSize` 件の題名とタグを `tev1:4b` に番号付きで見せ、依頼に関係するものを選ばせる。選ばれたページ（最大 `maxPages` 件）を `ntn pages get` で読み、そのターンの `context` として添付する |
+| 回答の終了後（記録） | 依頼と回答を `tev1:4b` に読ませ、`none` / `create` / `append` を判断させる。`create` は新規ページ、`append` は既存ページの末尾への追記 |
 
-- 記録先は userConfig の `databaseId`（ID または URL）で決める。ツールの `database_id` で上書きできる。データベースが複数の data source を持つときは、勝手に選ばず候補を示して `data_source_id` を求める。
-- `record_knowledge` は、同じ題名（全角半角・大文字小文字・空白の違いを無視）のページがあれば作らず、既存のページを返す。API に冪等キーがないため、失敗時は再試行の前に `find_knowledge` で確認するよう促す。
-- `properties` は `{ "名前": 値 }` で渡し、スキーマの型に合わせて Notion の値に変換する（select / multi_select / status / number / checkbox / date / url / email / phone_number / relation / rich_text、`null` でクリア）。存在しない名前や読み取り専用の型は、書き込む前に拒否する。
-- `revise_knowledge` の `append` は末尾への追記、`edit` は `old_str` から `new_str` への置換、`replace` は全文置換になる。`replace` の前にはページの現状を `.claude/notion-snapshots/` に保存し（`.gitignore`（`*`）を自動で置く）、保存に失敗したら置換しない。子ページ・子データベースの削除は常に許可しない。
-- 削除のツールは提供しない。
-- 起動時に `ntn whoami` が通ったときだけツールを登録する。システムプロンプトにも、調べ物の前に既存の知識を確認すること、記録に値する知識（決定と理由・原因を突き止めた不具合・自明でない罠・調査の結論）と記録の作法を足す。
-- コマンドはシェルを通さず argv で実行し、リクエスト本文は stdin から渡す。
-- ページ本文を返す文字数の上限は `maxChars`（既定 30000）、検索で辿るページ数の上限は `maxPages`（既定 5）で変更できる。
-- ツール名に `search` / `fetch` などを含めていないため、source-citation の調査判定は働かない。
+- 取得は、該当なしなら何も添付しない。挨拶・短い入力・`/` で始まる入力・割り込み中の送信、ollama や Notion の失敗では、プロンプトをそのまま通す。
+- 記録の対象は、決定とその理由、原因を突き止めた不具合、自明でない罠、調査の結論、再利用できる手順。本文は回答の事実（値・コマンド・理由）を写す形で書かせる。
+- `tev1:4b` は `create` に偏って重複を作りやすいため、`create` と判断したときは、同じ話題の既存ページがないかを絞った質問でもう一度確かめ、あれば `append` に切り替える。作る直前には、一覧に載らない古いページと題名が重ならないか Notion 側でも探す。
+- 記録するのは、題名と本文だけ。ページのプロパティ（タグなど）は設定しない。`append` は `## 追記 <日付>` の見出しで足し、既存の本文は書き換えない。削除もしない。
+- `tev1:4b` が出した内容に、API キー・トークン・秘密鍵・`password=` などの形が含まれていたら記録しない。
+- 判断の応答は構造化出力（JSON スキーマ）で縛り、範囲外の番号や短すぎる本文は「記録しない」として扱う。失敗したモデルは次のモデルへ回し、全部失敗したら 60 秒は問い合わせない。
+- 一覧の取得は 5 分間キャッシュし、記録したら破棄する。ナレッジが `catalogSize` 件を超える場合、選べるのは更新の新しい側だけになる。
+- サブエージェントのターンは記録の対象外。`autoRecord` をオフにすると取得だけ行う。
+- 取得にかかる時間（モデルが温まっているとき約 2 秒、読み込みを含めると約 8 秒）だけ、プロンプトの送信が遅れる。上限は `timeoutSeconds`（既定 40 秒）。
+- `databaseId`（ID または URL）が空のあいだは何もしない。ollama の URL、モデルの優先順、`keepAlive`、添付する文字数の上限は userConfig で変更できる。
+- 起動後に `ntn whoami` が通らないときは動かない。
 
 ### 導入
 
 ```
+ollama pull tev1:4b
 curl -fsSL https://ntn.dev | bash
 ntn login   # または NOTION_API_TOKEN を設定する
 /plugin install notion-knowledge@utakata-cc-mod
 ```
 
-Notion 側では、対象のデータベースを使う Integration（または `ntn login` したユーザー）に共有しておく。
+プラグイン設定で `databaseId` にナレッジのデータベースを指定する。Notion 側では、そのデータベースを `ntn` のユーザー（または Integration）に共有しておく。
