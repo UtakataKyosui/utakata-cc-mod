@@ -1,5 +1,9 @@
 import type { Register } from 'claude-code'
-import { type FindFilesInput, type SearchCodeInput, fdArgs, formatResult, guidance, readConfig, rgArgs } from './policy'
+import {
+  type Config, type FindFilesInput, type SearchCodeInput, NARROW_MAX_PICK, NARROW_SYSTEM, clip, fallbackNote, fdArgs, formatNarrowed, formatResult,
+  guidance, narrowCandidates, narrowPrompt, purposeOf, readConfig, rgArgs, shouldNarrow, validPick,
+} from './policy'
+import { type LlmState, type LlmTransport, callLocalLlm, createLlmState, idsSchema } from './local-llm'
 
 const FIND = 'mcp__code-finder__find_files'
 const SEARCH = 'mcp__code-finder__search_code'
@@ -21,11 +25,42 @@ function detect($: any): Promise<{ fd: boolean; rg: boolean }> {
   return available
 }
 
+const transport = ($: any): LlmTransport => ({
+  fetch: (url, init) => $.http.fetch(url, init),
+  sleep: (ms, o) => $.clock.sleep(ms, o),
+  log: text => $.ui.log(text, { to: 'debug' }),
+})
+
 const run = ($: any, argv: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> =>
   $.process.run(argv, { timeoutMs: 60_000 })
 
+/** purpose があれば検索結果をローカルLLMで絞り込む。off・小規模な auto・失敗時は既存の結果を返す。 */
+async function narrow($: any, cfg: Config, state: LlmState, input: SearchCodeInput, stdout: string): Promise<string> {
+  const existing = formatResult(stdout, cfg.maxResults, '一致')
+  const purpose = purposeOf(input)
+  if (purpose === undefined || cfg.llm.mode === 'off') return existing
+  try {
+    const { text, total, clipped } = clip(stdout, cfg.maxResults)
+    const cands = narrowCandidates(text)
+    if (cands.length === 0) return existing
+    const r = await callLocalLlm<{ ids: number[] }>(transport($), cfg.llm, {
+      label: 'code-finder',
+      system: NARROW_SYSTEM,
+      prompt: narrowPrompt(purpose, input.pattern, cands),
+      schema: idsSchema(NARROW_MAX_PICK),
+      autoWhen: () => shouldNarrow(cands),
+      semantic: v => validPick(v.ids, cands),
+    }, state)
+    if (!r.ok) return r.reason === 'disabled' ? existing : existing + fallbackNote(r.reason)
+    return formatNarrowed(cands, r.value.ids, { total, clipped, maxResults: cfg.maxResults, maxInputChars: cfg.llm.maxInputChars })
+  } catch {
+    return existing
+  }
+}
+
 export const register: Register = (on, options) => {
   const cfg = readConfig(options)
+  const state = createLlmState()
 
   on('session.start', async ($, e, next) => {
     const { fd, rg } = await detect($)
@@ -52,7 +87,7 @@ export const register: Register = (on, options) => {
       await $.tool.register({
         name: 'search_code',
         description:
-          'ripgrep でファイルの中身を検索し、path:行番号:内容 を返す。file_pattern を渡すと、fd でファイル名を絞ってからその中だけを検索する。',
+          'ripgrep でファイルの中身を検索し、path:行番号:内容 を返す。file_pattern を渡すと、fd でファイル名を絞ってからその中だけを検索する。purpose を渡すと、結果が多いときにローカルLLMが関係する行だけに絞る (設定で有効なとき)。',
         inputSchema: {
           type: 'object',
           properties: {
@@ -67,6 +102,8 @@ export const register: Register = (on, options) => {
             files_only: { type: 'boolean', description: '一致したファイル名だけ返す' },
             context: { type: 'number', description: '前後に付ける行数' },
             hidden: { type: 'boolean' },
+            purpose: { type: 'string', description: '調査の目的。検索結果の絞り込みに使う。省略すると絞り込まない' },
+            raw: { type: 'boolean', description: 'true なら purpose があっても絞り込まず、検索結果をそのまま返す' },
           },
           required: ['pattern'],
         },
@@ -103,7 +140,7 @@ export const register: Register = (on, options) => {
     const r = await run($, rgArgs(input, files))
     if (r.exitCode === 1) return { result: formatResult('', cfg.maxResults, '一致') }
     if (r.exitCode !== 0) return { deny: `rg failed: ${r.stderr.trim() || `exit ${r.exitCode}`}` }
-    return { result: formatResult(r.stdout, cfg.maxResults, '一致') }
+    return { result: await narrow($, cfg, state, input, r.stdout) }
   })
 
   on('prompt.compose', async ($, e, next) => {
