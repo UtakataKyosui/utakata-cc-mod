@@ -189,3 +189,35 @@ brew install atani/tap/ctxpack
 ```
 /plugin install source-citation@utakata-cc-mod
 ```
+
+## notion-knowledge
+
+Notion のデータベースをナレッジベースとして使う。後で役に立つ知識を記録・更新し、必要なときに検索して読み取るためのツールをモデルに提供する。Notion との通信は [ntn](https://ntn.dev)（Notion CLI）と Notion API で行う。ベースは [ntn-lib](https://github.com/UtakataKyosui/ntn-lib) で、その罠（`databases/{id}/query` は存在しない、`-d` に改行入りの JSON を直接渡すと固まる、作成 API に冪等キーがない、など）を TypeScript に移してある。
+
+| ツール | 中身 | 主な引数 |
+|---|---|---|
+| `mcp__notion-knowledge__find_knowledge` | 記録済みのページを探す。データベース指定時は題名の部分一致・filter・sorts でクエリし、未指定ならワークスペースを題名で検索する | `query`、`filter`、`sorts`、`limit`、`database_id`、`data_source_id` |
+| `mcp__notion-knowledge__knowledge_schema` | データベースのプロパティ（名前・型・選択肢）を返す | `database_id`、`data_source_id` |
+| `mcp__notion-knowledge__read_knowledge` | ページをプロパティ付きの Markdown で読む | `page_id`（ID または URL） |
+| `mcp__notion-knowledge__record_knowledge` | データベースに新しいページを作る | `title`、`content`、`properties`、`database_id` |
+| `mcp__notion-knowledge__revise_knowledge` | 既存ページのプロパティと本文を更新する | `page_id`、`properties`、`mode`（`append` / `edit` / `replace`）、`content`、`edits` |
+
+- 記録先は userConfig の `databaseId`（ID または URL）で決める。ツールの `database_id` で上書きできる。データベースが複数の data source を持つときは、勝手に選ばず候補を示して `data_source_id` を求める。
+- `record_knowledge` は、同じ題名（全角半角・大文字小文字・空白の違いを無視）のページがあれば作らず、既存のページを返す。API に冪等キーがないため、失敗時は再試行の前に `find_knowledge` で確認するよう促す。
+- `properties` は `{ "名前": 値 }` で渡し、スキーマの型に合わせて Notion の値に変換する（select / multi_select / status / number / checkbox / date / url / email / phone_number / relation / rich_text、`null` でクリア）。存在しない名前や読み取り専用の型は、書き込む前に拒否する。
+- `revise_knowledge` の `append` は末尾への追記、`edit` は `old_str` から `new_str` への置換、`replace` は全文置換になる。`replace` の前にはページの現状を `.claude/notion-snapshots/` に保存し（`.gitignore`（`*`）を自動で置く）、保存に失敗したら置換しない。子ページ・子データベースの削除は常に許可しない。
+- 削除のツールは提供しない。
+- 起動時に `ntn whoami` が通ったときだけツールを登録する。システムプロンプトにも、調べ物の前に既存の知識を確認すること、記録に値する知識（決定と理由・原因を突き止めた不具合・自明でない罠・調査の結論）と記録の作法を足す。
+- コマンドはシェルを通さず argv で実行し、リクエスト本文は stdin から渡す。
+- ページ本文を返す文字数の上限は `maxChars`（既定 30000）、検索で辿るページ数の上限は `maxPages`（既定 5）で変更できる。
+- ツール名に `search` / `fetch` などを含めていないため、source-citation の調査判定は働かない。
+
+### 導入
+
+```
+curl -fsSL https://ntn.dev | bash
+ntn login   # または NOTION_API_TOKEN を設定する
+/plugin install notion-knowledge@utakata-cc-mod
+```
+
+Notion 側では、対象のデータベースを使う Integration（または `ntn login` したユーザー）に共有しておく。

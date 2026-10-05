@@ -1,0 +1,33 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "notion-knowledge",
+  "version": "0.1.0",
+  "description": "ntn と Notion API で Notion データベースをナレッジベースとして使い、記録・更新・検索・読み取りを行うツールをモデルに提供するMod",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "databaseId": {
+      "type": "string",
+      "title": "ナレッジのデータベース",
+      "description": "ナレッジを記録するデータベースの ID または URL。空のときは各ツールの database_id 引数で指定する",
+      "default": ""
+    },
+    "maxChars": {
+      "type": "number",
+      "title": "ページ本文を返す文字数の最大値",
+      "description": "1 回の読み取りで返す文字数の上限。超えた分は切り捨てて全体の文字数だけ伝える",
+      "default": 30000,
+      "min": 1000,
+      "max": 200000
+    },
+    "maxPages": {
+      "type": "number",
+      "title": "検索で辿る最大ページ数",
+      "description": "検索結果のページネーションを辿る回数の上限 (1 ページ最大 100 件)",
+      "default": 5,
+      "min": 1,
+      "max": 50
+    }
+  }
+}

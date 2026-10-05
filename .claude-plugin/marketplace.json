@@ -44,6 +44,11 @@
       "name": "source-citation",
       "source": "./plugins/source-citation",
       "description": "情報収集した内容を回答やファイルに書くとき、出典 (URL) の併記を必須にする"
+    },
+    {
+      "name": "notion-knowledge",
+      "source": "./plugins/notion-knowledge",
+      "description": "ntn と Notion API で Notion データベースをナレッジベースとして使い、記録・更新・検索・読み取りを行うツールをモデルに提供する"
     }
   ]
 }
