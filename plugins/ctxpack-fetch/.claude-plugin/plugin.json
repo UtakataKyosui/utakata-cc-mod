@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "ctxpack-fetch",
+  "version": "0.1.0",
+  "description": "WebFetch を禁じ、代わりに ctxpack で Web ページをノイズ除去した Markdown として取得するツール (fetch_page) をモデルに提供するMod",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "maxChars": {
+      "type": "number",
+      "title": "返す文字数の最大値",
+      "description": "1 回の取得で返す文字数の上限。超えた分は切り捨てて全体の文字数だけ伝える",
+      "default": 60000,
+      "min": 1000,
+      "max": 400000
+    }
+  }
+}

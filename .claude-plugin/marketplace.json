@@ -34,6 +34,11 @@
       "name": "code-finder",
       "source": "./plugins/code-finder",
       "description": "fd と ripgrep でファイル名・コード内容を検索するツール (find_files / search_code) をモデルに提供する"
+    },
+    {
+      "name": "ctxpack-fetch",
+      "source": "./plugins/ctxpack-fetch",
+      "description": "WebFetch を禁じ、ctxpack でノイズを除いた Web ページを取得するツール (fetch_page) を提供する"
     }
   ]
 }

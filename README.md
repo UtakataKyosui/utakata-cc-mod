@@ -148,3 +148,24 @@ fd と ripgrep を使って、ファイルやコードを探すツールをモ�
 brew install fd ripgrep
 /plugin install code-finder@utakata-cc-mod
 ```
+
+## ctxpack-fetch
+
+WebFetch を禁じ、代わりに [ctxpack](https://github.com/atani/ctxpack) で Web ページを取得するツールをモデルに提供する。ctxpack はページからノイズを除いたコンパクトな Markdown を返す CLI。
+
+| ツール | 中身 | 引数 |
+|---|---|---|
+| `mcp__ctxpack-fetch__fetch_page` | `ctxpack <url> [--query <キーワード>]` を実行する | `url`（http / https）、`query` |
+
+- 起動時に `ctxpack` の有無を調べ、入っているときだけツールを登録して WebFetch を拒否する。入っていないときは WebFetch をそのまま使える。
+- URL は http(s) のみ受け付ける。コマンドはシェルを通さず argv で実行する。
+- `query` を渡すと、関連するセクションが先頭に来る。
+- 返す文字数の上限は userConfig の `maxChars`（既定 60000）で変更できる。
+- システムプロンプトにも WebFetch の代わりに `fetch_page` を使う案内を足す。
+
+### 導入
+
+```
+brew install atani/tap/ctxpack
+/plugin install ctxpack-fetch@utakata-cc-mod
+```
