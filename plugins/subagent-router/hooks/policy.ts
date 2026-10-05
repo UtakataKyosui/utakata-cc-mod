@@ -1,3 +1,7 @@
+import { type LlmConfig, buildBody as buildLlmBody, pickCandidates, readLlmConfig, tick } from './local-llm'
+
+export { pickCandidates, tick }
+
 export const MODELS = ['haiku', 'sonnet', 'opus'] as const
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 
@@ -11,26 +15,20 @@ export type Config = {
   timeoutMs: number
   skipTurns: number
   keepAlive: string
+  llm: LlmConfig
 }
 
-const DEFAULT_MODELS = ['tev1:4b', 'nimble']
-
 export const readConfig = (o: Record<string, unknown> | undefined): Config => {
-  const num = (v: unknown, d: number, min: number, max: number) =>
-    typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : d
-  const list =
-    typeof o?.models === 'string'
-      ? o.models
-          .split(',')
-          .map(s => s.trim())
-          .filter(s => s !== '')
-      : []
+  const llm = readLlmConfig(o, { mode: 'always' })
+  const skip = typeof o?.skipTurns === 'number' && Number.isFinite(o.skipTurns) ? Math.min(50, Math.max(0, o.skipTurns)) : 5
   return {
-    ollamaUrl: (typeof o?.ollamaUrl === 'string' && o.ollamaUrl !== '' ? o.ollamaUrl : 'http://localhost:11434').replace(/\/+$/, ''),
-    models: list.length > 0 ? list : DEFAULT_MODELS,
-    timeoutMs: num(o?.timeoutSeconds, 30, 5, 120) * 1000,
-    skipTurns: num(o?.skipTurns, 5, 0, 50),
-    keepAlive: typeof o?.keepAlive === 'string' && o.keepAlive !== '' ? o.keepAlive : '1m',
+    ollamaUrl: llm.ollamaUrl,
+    models: llm.models,
+    timeoutMs: llm.timeoutMs,
+    skipTurns: skip,
+    keepAlive: llm.keepAlive,
+    // 既存どおり全モデルを順に試す。待ち時間の上限は全モデル分のタイムアウトの合計
+    llm: { ...llm, mode: 'always', maxAttempts: llm.models.length, totalTimeoutMs: llm.timeoutMs * llm.models.length, maxInputChars: Infinity, maxOutputChars: Infinity },
   }
 }
 
@@ -71,38 +69,19 @@ export const buildRequest = (task: { subagentType: string; description: string; 
     `prompt:\n${task.prompt.slice(0, PROMPT_LIMIT)}`,
   ].join('\n')
 
+export const toDecision = (v: unknown): Decision | undefined => {
+  const d = v as { model?: unknown; effort?: unknown } | null
+  const model = MODELS.find(m => m === d?.model)
+  const effort = EFFORTS.find(x => x === d?.effort)
+  return model !== undefined && effort !== undefined ? { model, effort } : undefined
+}
+
 export const parseDecision = (text: string): Decision | undefined => {
   try {
-    const v = JSON.parse(text) as { model?: unknown; effort?: unknown }
-    const model = MODELS.find(m => m === v.model)
-    const effort = EFFORTS.find(x => x === v.effort)
-    return model !== undefined && effort !== undefined ? { model, effort } : undefined
+    return toDecision(JSON.parse(text))
   } catch {
     return undefined
   }
 }
 
-export const buildBody = (cfg: Config, model: string, content: string) =>
-  JSON.stringify({
-    model,
-    stream: false,
-    think: false,
-    format: SCHEMA,
-    keep_alive: cfg.keepAlive,
-    options: { temperature: 0 },
-    messages: [{ role: 'user', content }],
-  })
-
-/** 失敗したモデルを skipTurns 回の起動のあいだ飛ばす。全部飛ばす状況では最後の 1 つを試す。 */
-export const pickCandidates = (models: readonly string[], cooldown: ReadonlyMap<string, number>): string[] => {
-  const live = models.filter(m => (cooldown.get(m) ?? 0) <= 0)
-  const last = models[models.length - 1]
-  return live.length > 0 ? live : last === undefined ? [] : [last]
-}
-
-export const tick = (cooldown: Map<string, number>) => {
-  for (const [k, v] of cooldown) {
-    if (v <= 1) cooldown.delete(k)
-    else cooldown.set(k, v - 1)
-  }
-}
+export const buildBody = (cfg: Config, model: string, content: string) => buildLlmBody(cfg, model, { prompt: content, schema: SCHEMA })

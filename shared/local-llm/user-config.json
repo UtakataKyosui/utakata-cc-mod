@@ -1,0 +1,67 @@
+{
+  "llmMode": {
+    "type": "string",
+    "title": "ローカル LLM の利用モード",
+    "description": "off: 使わない (既存の動作) / auto: 入力規模などの決定的な条件を満たすときだけ使う / always: 対象の処理で必ず試す。always でも失敗したときは既存の動作に戻る",
+    "default": "off",
+    "options": ["off", "auto", "always"]
+  },
+  "ollamaUrl": {
+    "type": "string",
+    "title": "ollama の URL",
+    "description": "ollama サーバーのベース URL",
+    "default": "http://localhost:11434"
+  },
+  "models": {
+    "type": "string",
+    "title": "モデルの優先順 (カンマ区切り)",
+    "description": "先頭から試し、接続失敗・タイムアウト・不正な応答のモデルは次へ回す",
+    "default": "tev1:4b,nimble"
+  },
+  "timeoutSeconds": {
+    "type": "number",
+    "title": "1 モデルあたりのタイムアウト (秒)",
+    "description": "モデルの読み込みを含めてこの時間内に答えなければ失敗として次のモデルへ回す",
+    "default": 30,
+    "min": 5,
+    "max": 120
+  },
+  "totalTimeoutSeconds": {
+    "type": "number",
+    "title": "全モデル合計の待ち時間の上限 (秒)",
+    "description": "切り替えを含めた待ち時間の上限。超えたら打ち切って既存の動作に戻る",
+    "default": 60,
+    "min": 5,
+    "max": 600
+  },
+  "maxAttempts": {
+    "type": "number",
+    "title": "試すモデルの最大数",
+    "description": "1 回の処理で試すモデルの数の上限",
+    "default": 2,
+    "min": 1,
+    "max": 10
+  },
+  "keepAlive": {
+    "type": "string",
+    "title": "モデルをメモリに残す時間",
+    "description": "ollama の keep_alive。短いほどメモリを早く解放する",
+    "default": "1m"
+  },
+  "maxInputChars": {
+    "type": "number",
+    "title": "モデルへ送る入力の上限 (文字数)",
+    "description": "これを超える入力は送らず、既存の動作に戻る",
+    "default": 12000,
+    "min": 500,
+    "max": 200000
+  },
+  "maxOutputChars": {
+    "type": "number",
+    "title": "モデルの出力の上限 (文字数)",
+    "description": "これを超える応答は不正として捨てる",
+    "default": 4000,
+    "min": 200,
+    "max": 100000
+  }
+}

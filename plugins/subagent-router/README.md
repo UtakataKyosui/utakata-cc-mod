@@ -14,6 +14,7 @@ SubAgent の起動時に、タスクに合う model と effort を ollama の決
 - model は `agent.spawn` フックで、effort は SubAgent 自身のリクエストの `turn.step` フックで適用する。
 - `tev1:0.8b` は軽すぎて、試した 8 件のうち 5 件で model を外した（ほぼ常に opus を返す）ため既定には入れていない。`models` に追記すれば使える。
 - Agent 呼び出しが model を明示している場合と fork は対象外。
+- ollama の呼び出し・モデルの切り替え・応答の検証は [shared/local-llm](../../shared/local-llm/README.md) の共通基盤を `hooks/local-llm/` に同梱して使う。
 - ollama の URL、モデルの優先順、タイムアウト、失敗時に飛ばす回数、`keep_alive` は userConfig で変更できる。
 
 ## 導入

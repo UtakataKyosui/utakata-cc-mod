@@ -1,49 +1,29 @@
 import type { Register } from 'claude-code'
-import { type Config, type Decision, buildBody, buildRequest, parseDecision, pickCandidates, readConfig, tick } from './policy'
+import { type Decision, SCHEMA, buildRequest, readConfig, toDecision } from './policy'
+import { type LlmTransport, callLocalLlm, createLlmState } from './local-llm'
 
-async function ask($: any, cfg: Config, model: string, content: string): Promise<Decision | undefined> {
-  const call = $.http.fetch(`${cfg.ollamaUrl}/api/chat`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: buildBody(cfg, model, content),
-  })
-  const timeout = $.clock.sleep(cfg.timeoutMs).then(() => undefined)
-  const res = await Promise.race([call, timeout])
-  if (res === undefined || !res.ok) return undefined
-  const text = (JSON.parse(res.text) as { message?: { content?: string } }).message?.content
-  return typeof text === 'string' ? parseDecision(text) : undefined
-}
+const transport = ($: any): LlmTransport => ({
+  fetch: (url, init) => $.http.fetch(url, init),
+  sleep: (ms, o) => $.clock.sleep(ms, o),
+  log: text => $.ui.log(text, { to: 'debug' }),
+})
 
 export const register: Register = (on, options) => {
   const cfg = readConfig(options)
-  const cooldown = new Map<string, number>()
+  const state = createLlmState(cfg.skipTurns)
   const efforts = new Map<string, Decision['effort']>()
 
   on('agent.spawn', async ($, e, next) => {
     if (e.fork || e.model !== undefined) return next(e)
 
-    const content = buildRequest(e)
-    const candidates = pickCandidates(cfg.models, cooldown)
-    tick(cooldown)
+    const r = await callLocalLlm(transport($), cfg.llm, { label: 'subagent-router', prompt: buildRequest(e), schema: SCHEMA, semantic: v => toDecision(v) !== undefined }, state)
+    const decision = r.ok ? toDecision(r.value) : undefined
+    if (!r.ok || decision === undefined) return next(e)
 
-    for (const name of candidates) {
-      let decision: Decision | undefined
-      try {
-        decision = await ask($, cfg, name, content)
-      } catch {
-        decision = undefined
-      }
-      if (decision === undefined) {
-        cooldown.set(name, cfg.skipTurns)
-        $.ui.log(`subagent-router: ${name} failed, trying the next model`, { to: 'debug' })
-        continue
-      }
-      const started = await next({ ...e, model: decision.model })
-      if (started.agentId !== undefined) efforts.set(started.agentId, decision.effort)
-      $.ui.toast(`subagent-router: ${name} → ${decision.model} / ${decision.effort}`)
-      return started
-    }
-    return next(e)
+    const started = await next({ ...e, model: decision.model })
+    if (started.agentId !== undefined) efforts.set(started.agentId, decision.effort)
+    $.ui.toast(`subagent-router: ${r.model} → ${decision.model} / ${decision.effort}`)
+    return started
   })
 
   on('turn.step', async function* ($, e, next) {

@@ -59,4 +59,6 @@ pnpm run test:integration
 
 `validate:all` と `test:all` は全プラグインを順に検証する。`test:integration` は実プラグインを組み合わせた統合テストで、bun が必要。workspace-isolation の実 git を使うテストは `bun test ./plugins/workspace-isolation/tests/git.itest.ts` で実行する。
 
+ローカルLLM(ollama)を使う各プラグインの共通呼び出し基盤は [shared/local-llm](shared/local-llm/README.md) にある。正本を編集したら `pnpm run sync:local-llm` で各プラグインへ同梱コピーを更新する(ずれは `test:integration` で検出する)。基盤自体のテストは `pnpm run test:shared`。
+
 Mod対応のClaude Codeで実行する。確認した環境(Claude Code 2.1.289)と制約は [harness-profile](plugins/harness-profile/README.md) を参照。依存CLIや外部サービスの前提条件は各READMEに記載している。
