@@ -1,8 +1,20 @@
 import type { Register } from 'claude-code'
 import {
   type Config, type Entry, type Report, type Run,
-  fingerprintOf, formatReport, guidance, overall, parseConditions, readConfig, tail, verdictOf,
+  EXTRACT_SYSTEM, LINE_MAX_CHARS, MAX_PICK,
+  buildExcerpt, buildExtractPrompt, collectLog, exceedsTail, fingerprintOf, formatExtract, formatReport, guidance, overall, parseConditions,
+  promptBudget, readConfig, tail, verdictOf, windowCandidates,
 } from './policy'
+import {
+  type LlmConfig, type LlmState, type LlmTransport,
+  callLocalLlm, createLlmState, idsSchema, pickByIds, readLlmConfig, renderCandidates, splitCandidates, validateIds,
+} from './local-llm'
+
+const transport = ($: any): LlmTransport => ({
+  fetch: (url, init) => $.http.fetch(url, init),
+  sleep: (ms, o) => $.clock.sleep(ms, o),
+  log: text => $.ui.log(text, { to: 'debug' }),
+})
 
 const DEFINE = 'mcp__verification-gate__verify_define'
 const RUN = 'mcp__verification-gate__verify_run'
@@ -44,7 +56,7 @@ async function reports($: any, entries: Entry[]): Promise<Report[]> {
   return entries.map(entry => ({ entry, verdict: verdictOf(entry, now) }))
 }
 
-async function execute($: any, cfg: Config, entry: Entry): Promise<{ run: Run; output: string }> {
+async function execute($: any, cfg: Config, entry: Entry): Promise<{ run: Run; output: string; raw: string }> {
   const started = await $.clock.now()
   const base = { at: new Date(started).toISOString() }
   try {
@@ -58,7 +70,8 @@ async function execute($: any, cfg: Config, entry: Entry): Promise<{ run: Run; o
     const durationMs = (await $.clock.now()) - started
     const fp = await fingerprint($)
     const run: Run = { ...base, outcome: r.exitCode === 0 ? 'passed' : 'failed', exitCode: r.exitCode, durationMs, fingerprint: fp }
-    return { run, output: tail(`${r.stdout}\n${r.stderr}`, cfg.outputTailChars) }
+    const raw = `${r.stdout}\n${r.stderr}`
+    return { run, output: tail(raw, cfg.outputTailChars), raw }
   } catch (err) {
     const durationMs = (await $.clock.now()) - started
     const msg = err instanceof Error ? err.message : String(err)
@@ -67,12 +80,49 @@ async function execute($: any, cfg: Config, entry: Entry): Promise<{ run: Run; o
       ? `${entry.condition.timeoutMs / 1000} 秒以内に終わらなかった`
       : `コマンドを実行できなかった (${tail(msg, 200)})`
     const fp = await fingerprint($)
-    return { run: { ...base, outcome: timedOut ? 'timeout' : 'error', exitCode: null, durationMs, fingerprint: fp, detail }, output: '' }
+    return { run: { ...base, outcome: timedOut ? 'timeout' : 'error', exitCode: null, durationMs, fingerprint: fp, detail }, output: '', raw: '' }
+  }
+}
+
+/**
+ * 失敗ログから、ローカル LLM が選んだ行の原文を抜粋する。LLM が選ぶのは行 ID だけで、判定や記録には使わない。
+ * off・条件外・失敗・不正な ID のときは undefined を返し、呼び出し側が既存の末尾出力を使う。
+ */
+async function extract($: any, cfg: Config, llm: LlmConfig, state: LlmState, id: string, description: string, raw: string): Promise<string | undefined> {
+  try {
+    if (llm.mode === 'off' || cfg.outputTailChars <= 0) return undefined
+    const collected = collectLog(raw)
+    const cands = splitCandidates(collected.text, { by: 'lines', maxChars: LINE_MAX_CHARS })
+    const { shown, hidden } = windowCandidates(cands, promptBudget(llm.maxInputChars))
+    if (shown.length === 0) return undefined
+    const check = (ids: unknown) => validateIds(ids, shown, { mode: 'strict', max: MAX_PICK })
+    const r = await callLocalLlm<{ ids: number[] }>(
+      transport($),
+      llm,
+      {
+        label: 'verification-gate',
+        system: EXTRACT_SYSTEM,
+        prompt: buildExtractPrompt(description, renderCandidates(shown), hidden),
+        schema: idsSchema(MAX_PICK),
+        autoWhen: () => exceedsTail(collected, cfg.outputTailChars),
+        semantic: v => v.ids.length > 0 && check(v.ids).ok,
+      },
+      state,
+    )
+    if (!r.ok) return undefined
+    const v = check(r.value.ids)
+    if (!v.ok) return undefined
+    const ex = buildExcerpt(pickByIds(shown, v.ids), collected.joinAt, collected.omitted, cfg.outputTailChars)
+    return ex.shown === 0 ? undefined : formatExtract(id, ex, collected)
+  } catch {
+    return undefined
   }
 }
 
 export const register: Register = (on, options) => {
   const cfg = readConfig(options)
+  const llm = readLlmConfig(options)
+  const llmState = createLlmState()
 
   on('session.start', async ($, e, next) => {
     await $.tool.register({
@@ -138,10 +188,13 @@ export const register: Register = (on, options) => {
     const baseline = input.baseline === true
     const outputs: string[] = []
     for (const entry of targets) {
-      const { run, output } = await execute($, cfg, entry)
+      const { run, output, raw } = await execute($, cfg, entry)
       if (baseline) entry.baseline = run
       else entry.last = run
-      if (run.outcome === 'failed' && output !== '') outputs.push(`--- ${entry.condition.id} の出力 (末尾) ---\n${output}`)
+      if (run.outcome !== 'failed' || output === '') continue
+      // 判定は記録済み。抜粋は表示だけに使い、失敗したら末尾出力に戻る
+      const excerpt = await extract($, cfg, llm, llmState, entry.condition.id, entry.condition.description, raw)
+      outputs.push(excerpt ?? `--- ${entry.condition.id} の出力 (末尾) ---\n${output}`)
     }
     await save($, entries)
     const head = baseline ? '変更前の基準として記録した。\n' : ''
