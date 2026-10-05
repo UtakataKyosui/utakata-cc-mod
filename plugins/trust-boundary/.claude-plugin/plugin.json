@@ -1,0 +1,61 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "trust-boundary",
+  "version": "0.1.0",
+  "description": "Web・Notion など外部由来の内容を参考データとして扱い、取得後の設定変更・外部送信・公開系の操作を要確認にし、送信先 allowlist と秘密検査で外部へ送る内容を制限するMod",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "guardMode": {
+      "type": "string",
+      "title": "外部内容の取得後に危険な操作をどう扱うか",
+      "description": "ask: 本体の確認に回す / deny: 拒否する / off: 何もしない。本体の判断が拒否のものは変えず、許可を広げることはしない。bypassPermissions では ask が自動承認され得るので deny を推奨",
+      "default": "ask",
+      "options": ["ask", "deny", "off"]
+    },
+    "externalTools": {
+      "type": "string",
+      "title": "外部内容を返すツール (カンマ区切り、* 可)",
+      "description": "これらのツールを呼んだセッションは「外部内容を取り込んだ」とみなし、以降の設定変更・外部送信・公開系の操作を検査する",
+      "default": "WebFetch,WebSearch,fetch_page,mcp__*notion*,mcp__*chrome*,mcp__*gmail*,mcp__*drive*,mcp__*slack*"
+    },
+    "allowedHosts": {
+      "type": "string",
+      "title": "送信を許す宛先ホスト (カンマ区切り)",
+      "description": "プラグインの http.fetch はここにあるホストだけ許可する (ollama の URL のホストもここに入れる)。空なら localhost と api.notion.com",
+      "default": "localhost,127.0.0.1,::1,api.notion.com"
+    },
+    "notionWrite": {
+      "type": "boolean",
+      "title": "ntn による Notion への書き込みを許す",
+      "description": "オフにすると notion-knowledge の自動記録など、ntn で行う作成・更新を拒否する。取得は影響を受けない",
+      "default": true
+    },
+    "scanOutbound": {
+      "type": "boolean",
+      "title": "外部へ送る内容に秘密検査・除外ルールを適用する",
+      "description": "ollama への送信、ntn での Notion 書き込み、Notion MCP の書き込みの本文を検査し、該当すれば拒否する。拒否理由には種別だけを出し、値は出さない",
+      "default": true
+    },
+    "excludePatterns": {
+      "type": "string",
+      "title": "送信・自動記録の除外ルール (1 行 1 つの正規表現)",
+      "description": "一致する内容は外部へ送らない。例: 社外秘|CONFIDENTIAL。空行は無視。不正な正規表現は検査失敗として扱う",
+      "default": ""
+    },
+    "extraSecretPatterns": {
+      "type": "string",
+      "title": "追加の秘密パターン (1 行 1 つの正規表現)",
+      "description": "組み込みの秘密検査に加えて使う。不正な正規表現は検査失敗として扱う",
+      "default": ""
+    },
+    "failMode": {
+      "type": "string",
+      "title": "検査に失敗したときの扱い",
+      "description": "closed: 送信・操作を止める (拒否または要確認) / open: 検査なしで通す。検査失敗は、不正な正規表現や検査中の例外",
+      "default": "closed",
+      "options": ["closed", "open"]
+    }
+  }
+}

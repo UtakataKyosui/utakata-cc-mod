@@ -1,0 +1,35 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "change-review",
+  "version": "0.1.0",
+  "description": "実装後の差分を、実装者とは別の読み取り専用レビュアー SubAgent に点検させるMod。指摘の形式検証、再レビュー回数の上限、未実施・未解決の明示を行う",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "skipMaxFiles": {
+      "type": "number",
+      "title": "レビューを省略できる変更ファイル数の上限",
+      "description": "変更ファイル数と変更行数の両方がこの上限以下なら、レビューを省略してよい。0 にすると省略しない",
+      "default": 2,
+      "min": 0,
+      "max": 100
+    },
+    "skipMaxLines": {
+      "type": "number",
+      "title": "レビューを省略できる変更行数の上限",
+      "description": "追加行と削除行の合計がこの値以下なら、ファイル数の条件と合わせてレビューを省略してよい。0 にすると省略しない",
+      "default": 30,
+      "min": 0,
+      "max": 5000
+    },
+    "maxReReviews": {
+      "type": "number",
+      "title": "再レビュー回数の上限",
+      "description": "初回レビューを除く、修正後の再レビューの上限。超えたレビュアーの起動は拒否し、未解決の指摘を完了報告に書かせる",
+      "default": 2,
+      "min": 0,
+      "max": 10
+    }
+  }
+}

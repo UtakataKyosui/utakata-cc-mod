@@ -18,6 +18,16 @@ const RESEARCH_TOOL = /^(WebFetch|WebSearch)$|^mcp__.*(fetch|search|scrape|crawl
 
 export const isResearchTool = (tool: string): boolean => RESEARCH_TOOL.test(tool)
 
+/** 会話履歴の assistant メッセージに、調査ツールの tool_use があるか。 */
+export const hasResearchInHistory = (messages: unknown): boolean =>
+  Array.isArray(messages) &&
+  messages.some(
+    m =>
+      m?.role === 'assistant' &&
+      Array.isArray(m.content) &&
+      m.content.some((b: { type?: unknown; name?: unknown }) => b?.type === 'tool_use' && typeof b.name === 'string' && isResearchTool(b.name)),
+  )
+
 export const isDocPath = (path: unknown, cfg: Config): boolean => {
   if (typeof path !== 'string') return false
   const m = /\.([A-Za-z0-9]+)$/.exec(path)

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "task-checkpoint",
+  "version": "0.1.0",
+  "description": "ゴールとタスクの状態をローカルに保存し、Compaction や再開のあとに実際のファイルと照合して復元する",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "saveDir": {
+      "type": "string",
+      "title": "保存先ディレクトリ",
+      "description": "相対パスはプロジェクトルートからの位置。中に .gitignore を自動で置き、git 管理から外す",
+      "default": ".claude/checkpoints"
+    },
+    "maxPromptTasks": {
+      "type": "number",
+      "title": "プロンプトに載せるタスク数の上限",
+      "description": "Compaction や再開のあと、システムプロンプトに載せるタスクの最大件数。未完了のものを優先する",
+      "default": 20,
+      "min": 5,
+      "max": 100
+    }
+  }
+}

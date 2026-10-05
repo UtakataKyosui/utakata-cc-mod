@@ -1,0 +1,35 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "workspace-isolation",
+  "version": "0.1.0",
+  "description": "書き込みを行う並列タスクに専用 git worktree を割り当て、ベース・担当範囲・成果差分を追跡し、競合と範囲外変更を検出してから安全に統合するMod",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "verifyCommand": {
+      "type": "string",
+      "title": "統合後の検証コマンド",
+      "description": "統合した差分に対して作業ツリーで実行するコマンド (例: npm test)。成功したタスクだけを検証済みにする。空のあいだは検証済みにならない",
+      "default": ""
+    },
+    "worktreeRoot": {
+      "type": "string",
+      "title": "worktree の置き場所",
+      "description": "タスクごとの worktree を作るディレクトリ。空ならリポジトリと同じ階層の <リポジトリ名>-workspaces",
+      "default": ""
+    },
+    "guardDestructive": {
+      "type": "boolean",
+      "title": "破壊的な git 操作を拒否する",
+      "description": "Bash の reset --hard、clean -f、強制 push、worktree の強制削除を実行前に拒否する",
+      "default": true
+    },
+    "autoCollect": {
+      "type": "boolean",
+      "title": "終了時に成果を回収する",
+      "description": "セッション終了時、未統合の書き込みタスクの差分をパッチファイルとして保存する。worktree やブランチは削除しない",
+      "default": true
+    }
+  }
+}

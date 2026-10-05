@@ -1,0 +1,38 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "harness-profile",
+  "version": "0.1.0",
+  "description": "開発ハーネス用の推奨プロファイル (minimal / standard / full) を示し、/harness で必要な CLI・Notion 設定・ollama 接続の不足を診断するMod",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "profile": {
+      "type": "string",
+      "title": "診断する既定のプロファイル",
+      "description": "/harness を引数なしで実行したときに診断するプロファイル",
+      "default": "standard",
+      "options": ["minimal", "standard", "full"]
+    },
+    "ollamaUrl": {
+      "type": "string",
+      "title": "ollama の URL",
+      "description": "接続を確認する ollama サーバーのベース URL",
+      "default": "http://localhost:11434"
+    },
+    "models": {
+      "type": "string",
+      "title": "存在を確認するモデル (カンマ区切り)",
+      "description": "subagent-router と notion-knowledge が使う判断モデル。ollama に無ければ不足として報告する",
+      "default": "tev1:4b,nimble"
+    },
+    "timeoutSeconds": {
+      "type": "number",
+      "title": "接続確認のタイムアウト (秒)",
+      "description": "ollama と ntn の確認ごとの待ち時間の上限",
+      "default": 10,
+      "min": 2,
+      "max": 60
+    }
+  }
+}

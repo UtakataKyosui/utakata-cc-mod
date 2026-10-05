@@ -49,6 +49,41 @@
       "name": "notion-knowledge",
       "source": "./plugins/notion-knowledge",
       "description": "Notion データベースをナレッジベースにし、ollama の tev1:4b の判断で、プロンプトに関係する知識の取得と新しい知識の自動記録を行う"
+    },
+    {
+      "name": "verification-gate",
+      "source": "./plugins/verification-gate",
+      "description": "リポジトリごとの検証コマンドと受け入れ条件を登録し、実行結果と変更状態の記録に基づいて完了を判定させる"
+    },
+    {
+      "name": "change-review",
+      "source": "./plugins/change-review",
+      "description": "実装後の差分を、実装者とは別の読み取り専用レビュアー SubAgent に点検させる"
+    },
+    {
+      "name": "workspace-isolation",
+      "source": "./plugins/workspace-isolation",
+      "description": "書き込みを行う並列タスクに専用 git worktree を割り当て、競合と範囲外変更を検出してから安全に統合する"
+    },
+    {
+      "name": "task-checkpoint",
+      "source": "./plugins/task-checkpoint",
+      "description": "ゴールとタスクの状態をローカルに保存し、Compaction や再開のあとに実際のファイルと照合して復元する"
+    },
+    {
+      "name": "execution-budget",
+      "source": "./plugins/execution-budget",
+      "description": "ゴール単位で SubAgent の起動数・同時実行数・再試行回数・経過時間に上限を設け、到達したら新しい起動を止めて進捗と残作業を保存する"
+    },
+    {
+      "name": "trust-boundary",
+      "source": "./plugins/trust-boundary",
+      "description": "Web・Notion など外部由来の内容を参考データとして扱い、取得後の設定変更・外部送信・公開系の操作を要確認にし、送信先 allowlist と秘密検査で外部へ送る内容を制限する"
+    },
+    {
+      "name": "harness-profile",
+      "source": "./plugins/harness-profile",
+      "description": "開発ハーネス用の推奨プロファイル (minimal / standard / full) を示し、/harness で必要な CLI・Notion 設定・ollama 接続の不足を診断する"
     }
   ]
 }

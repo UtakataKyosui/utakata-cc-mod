@@ -1,0 +1,57 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "execution-budget",
+  "version": "0.1.0",
+  "description": "ゴール単位で SubAgent の起動数・同時実行数・再試行回数・経過時間に上限を設け、到達したら新しい起動を止めて進捗と残作業を保存する。使用量と診断ログも記録する",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "maxMinutes": {
+      "type": "number",
+      "title": "ゴールの経過時間の上限 (分)",
+      "description": "この時間を過ぎたら新しい SubAgent を起動しない。0 で無制限",
+      "default": 120,
+      "min": 0,
+      "max": 1440
+    },
+    "maxConcurrent": {
+      "type": "number",
+      "title": "同時実行する SubAgent の上限",
+      "description": "実行中の SubAgent がこの数なら、空くまで新しい起動を断る。0 で無制限",
+      "default": 4,
+      "min": 0,
+      "max": 50
+    },
+    "maxSpawns": {
+      "type": "number",
+      "title": "SubAgent 起動総数の上限",
+      "description": "ゴール内の起動回数がこの数に達したら新しい起動を止める。0 で無制限",
+      "default": 30,
+      "min": 0,
+      "max": 500
+    },
+    "maxRetries": {
+      "type": "number",
+      "title": "再試行回数の上限",
+      "description": "同じ種類と内容の SubAgent を再び起動した回数の合計。超えたら止める。0 で無制限",
+      "default": 5,
+      "min": 0,
+      "max": 100
+    },
+    "retentionDays": {
+      "type": "number",
+      "title": "診断ログの保持期間 (日)",
+      "description": "これより古いログは自動で削除する。0 でログを記録しない",
+      "default": 7,
+      "min": 0,
+      "max": 365
+    },
+    "recordDescriptions": {
+      "type": "boolean",
+      "title": "タスクの説明文を残作業と診断ログに残す",
+      "description": "既定は off。プロンプト本文は設定にかかわらず保存しない",
+      "default": false
+    }
+  }
+}

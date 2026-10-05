@@ -1,0 +1,27 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "verification-gate",
+  "version": "0.1.0",
+  "description": "リポジトリごとの検証コマンドと受け入れ条件を登録し、実行結果と変更状態の記録に基づいて完了を判定させるMod",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "defaultTimeoutSec": {
+      "type": "number",
+      "title": "検証コマンドの既定タイムアウト (秒)",
+      "description": "条件ごとにタイムアウトを指定しなかったときに使う。超えたコマンドは強制終了し、タイムアウトとして記録する",
+      "default": 300,
+      "min": 5,
+      "max": 600
+    },
+    "outputTailChars": {
+      "type": "number",
+      "title": "失敗時に示す出力の長さ (文字)",
+      "description": "失敗した検証コマンドの出力の末尾をこの文字数だけモデルへ返す。出力は保存しない",
+      "default": 2000,
+      "min": 0,
+      "max": 20000
+    }
+  }
+}

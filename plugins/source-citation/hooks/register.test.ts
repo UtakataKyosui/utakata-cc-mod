@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { denyText, guidance, hasSource, isDocPath, isResearchTool, readConfig } from './policy'
+import { denyText, guidance, hasResearchInHistory, hasSource, isDocPath, isResearchTool, readConfig } from './policy'
 
 test('調査ツールの判定', () => {
   expect(isResearchTool('WebFetch')).toBe(true)
@@ -38,4 +38,13 @@ test('調査後は出典のない文書の書き込みを拒否する', async ($
   expect((await write('出典なし')).deny).toContain('出典')
   expect((await write('本文\n出典: https://example.com')).deny).toBeUndefined()
   expect((await write('const a = 1', '/tmp/a.ts')).deny).toBeUndefined()
+})
+
+test('履歴に調査ツールの tool_use があれば調査済みと判定する', () => {
+  const use = (name: string) => ({ role: 'assistant', content: [{ type: 'tool_use', name }] })
+  expect(hasResearchInHistory([use('mcp__ctxpack-fetch__fetch_page')])).toBe(true)
+  expect(hasResearchInHistory([use('Read'), use('WebSearch')])).toBe(true)
+  expect(hasResearchInHistory([use('Read')])).toBe(false)
+  expect(hasResearchInHistory([{ role: 'user', content: [{ type: 'tool_use', name: 'WebSearch' }] }])).toBe(false)
+  expect(hasResearchInHistory(undefined)).toBe(false)
 })
