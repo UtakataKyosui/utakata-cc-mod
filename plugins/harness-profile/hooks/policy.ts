@@ -1,9 +1,12 @@
 export type Status = 'ok' | 'missing' | 'unknown'
-export type ProfileName = 'minimal' | 'standard' | 'full'
+export type ProfileName = 'minimal' | 'standard' | 'full' | 'local-llm'
 
 export type Needs = {
   cli?: readonly string[]
+  /** 常に ollama を使う。 */
   ollama?: boolean
+  /** llmMode が off 以外のときだけ ollama を使う (共通のローカルLLM基盤を使う plugin)。 */
+  llmMode?: boolean
   notion?: boolean
 }
 
@@ -12,16 +15,16 @@ export type PluginSpec = { name: string; needs: Needs }
 /** 各プラグインが実際に呼ぶ CLI と外部サービス。 */
 export const PLUGINS: readonly PluginSpec[] = [
   { name: 'source-citation', needs: {} },
-  { name: 'verification-gate', needs: { cli: ['git'] } },
+  { name: 'verification-gate', needs: { cli: ['git'], llmMode: true } },
   { name: 'task-checkpoint', needs: { cli: ['git'] } },
   { name: 'execution-budget', needs: {} },
   { name: 'trust-boundary', needs: {} },
   { name: 'goal-orchestrator', needs: {} },
-  { name: 'change-review', needs: { cli: ['git'] } },
+  { name: 'change-review', needs: { cli: ['git'], llmMode: true } },
   { name: 'workspace-isolation', needs: { cli: ['git'] } },
   { name: 'auto-compact', needs: {} },
-  { name: 'code-finder', needs: { cli: ['fd', 'rg'] } },
-  { name: 'ctxpack-fetch', needs: { cli: ['ctxpack'] } },
+  { name: 'code-finder', needs: { cli: ['fd', 'rg'], llmMode: true } },
+  { name: 'ctxpack-fetch', needs: { cli: ['ctxpack'], llmMode: true } },
   { name: 'subagent-router', needs: { ollama: true } },
   { name: 'notion-knowledge', needs: { cli: ['ntn'], ollama: true, notion: true } },
   { name: 'advanced-rust-cli', needs: { cli: ['eza', 'bat', 'fd', 'rg'] } },
@@ -41,18 +44,23 @@ const STANDARD = [
   'ctxpack-fetch',
 ]
 
-export const PROFILES: Record<ProfileName, { summary: string; plugins: readonly string[] }> = {
+export const PROFILES: Record<ProfileName, { summary: string; plugins: readonly string[]; /** llmMode が off 以外であることを期待する。 */ expectLlm?: boolean }> = {
   minimal: { summary: '外部の道具に依存しない最小構成。出典・検証・状態保存だけを守る', plugins: MINIMAL },
   standard: { summary: '日常の開発向け。委譲・レビュー・隔離・予算・外部入力の保護を加える', plugins: STANDARD },
   full: {
     summary: 'ollama と Notion まで使う全部入り',
     plugins: [...STANDARD, 'subagent-router', 'notion-knowledge', 'advanced-rust-cli', 'stack-pr'],
   },
+  'local-llm': {
+    summary: 'standard にローカルLLMの併用 (llmMode: auto) を前提とする暫定構成。効果は未測定で、手動評価の結果で見直す',
+    plugins: STANDARD,
+    expectLlm: true,
+  },
 }
 
 export type Config = { profile: ProfileName; ollamaUrl: string; models: string[]; timeoutMs: number }
 
-export const isProfileName = (v: unknown): v is ProfileName => v === 'minimal' || v === 'standard' || v === 'full'
+export const isProfileName = (v: unknown): v is ProfileName => v === 'minimal' || v === 'standard' || v === 'full' || v === 'local-llm'
 
 export const readConfig = (o: Record<string, unknown> | undefined): Config => {
   const models =
@@ -75,16 +83,33 @@ export const parseProfileArg = (args: string, fallback: ProfileName): ProfileNam
   return isProfileName(word) ? word : undefined
 }
 
-export type Plan = { plugins: readonly PluginSpec[]; cli: string[]; ollama: boolean; notion: boolean }
+export type LlmModeStatus = 'off' | 'auto' | 'always' | 'unknown'
+export type LlmModes = Record<string, LlmModeStatus>
 
-/** プロファイルで診断する対象。CLI は重複を除く。 */
-export const planFor = (profile: ProfileName): Plan => {
+export type Plan = {
+  plugins: readonly PluginSpec[]
+  cli: string[]
+  ollama: boolean
+  notion: boolean
+  /** llmMode を持つ plugin と、その設定値。modes を渡さなければ unknown。 */
+  llm: { name: string; mode: LlmModeStatus }[]
+  expectLlm: boolean
+}
+
+/**
+ * プロファイルで診断する対象。CLI は重複を除く。
+ * ollama は、常に使う plugin があるか、llmMode が off 以外の plugin があるときだけ要る。
+ */
+export const planFor = (profile: ProfileName, modes?: LlmModes): Plan => {
   const plugins = PROFILES[profile].plugins.map(n => PLUGINS.find(p => p.name === n)!)
+  const llm = plugins.filter(p => p.needs.llmMode === true).map(p => ({ name: p.name, mode: modes?.[p.name] ?? ('unknown' as LlmModeStatus) }))
   return {
     plugins,
     cli: [...new Set(plugins.flatMap(p => p.needs.cli ?? []))],
-    ollama: plugins.some(p => p.needs.ollama === true),
+    ollama: plugins.some(p => p.needs.ollama === true) || llm.some(l => l.mode === 'auto' || l.mode === 'always'),
     notion: plugins.some(p => p.needs.notion === true),
+    llm,
+    expectLlm: PROFILES[profile].expectLlm === true,
   }
 }
 
@@ -95,12 +120,34 @@ export type Probes = {
   notionAuth: Status
   notionDatabase: Status
   enabled: Record<string, Status>
+  /** trust-boundary の allowedHosts が ollamaUrl のホストを含むか。省略は確認不可。 */
+  ollamaHostAllowed?: Status
 }
 
 export type Line = { status: Status; label: string; note: string }
 
-const needers = (plan: Plan, pick: (n: Needs) => boolean, only?: string): string =>
-  plan.plugins.filter(p => pick(p.needs) && (only === undefined || p.name === only)).map(p => p.name).join(', ')
+const needers = (plan: Plan, pick: (n: Needs) => boolean): string =>
+  plan.plugins.filter(p => pick(p.needs)).map(p => p.name).join(', ')
+
+const ollamaUsers = (plan: Plan): string =>
+  [
+    ...plan.plugins.filter(p => p.needs.ollama === true).map(p => p.name),
+    ...plan.llm.filter(l => l.mode === 'auto' || l.mode === 'always').map(l => `${l.name}(llmMode=${l.mode})`),
+  ].join(', ')
+
+const llmLine = (l: Plan['llm'][number], expect: boolean): Line => {
+  const label = `ローカルLLM設定 ${l.name}`
+  if (l.mode === 'unknown') return { status: 'unknown', label, note: 'settings を読めず llmMode を確認できない (ollama が要るかも判断できない)' }
+  if (l.mode !== 'off') return { status: 'ok', label, note: `llmMode=${l.mode}` }
+  return expect
+    ? { status: 'missing', label, note: 'llmMode=off。このプロファイルは auto を前提とする (設定は自分で変える)' }
+    : { status: 'ok', label, note: 'llmMode=off (ローカルLLMは使わない)' }
+}
+
+const hostOf = (url: string): string | undefined => {
+  const m = url.trim().match(/^[a-z][a-z0-9+.-]*:\/\/(?:[^/?#@]*@)?(\[[^\]]+\]|[^/?#:]+)/i)
+  return m?.[1]?.replace(/^\[|\]$/g, '').toLowerCase()
+}
 
 /** 診断結果を行にする。値は有無だけで、秘密値や設定内容は持たない。 */
 export const buildLines = (plan: Plan, probes: Probes, cfg: Config): Line[] => {
@@ -116,10 +163,18 @@ export const buildLines = (plan: Plan, probes: Probes, cfg: Config): Line[] => {
   for (const name of plan.cli) {
     lines.push({ status: probes.cli[name] ?? 'unknown', label: `CLI ${name}`, note: `使うプラグイン: ${needers(plan, n => n.cli?.includes(name) === true)}` })
   }
+  for (const l of plan.llm) lines.push(llmLine(l, plan.expectLlm))
   if (plan.ollama) {
-    lines.push({ status: probes.ollama, label: `ollama 接続 (${cfg.ollamaUrl})`, note: `使うプラグイン: ${needers(plan, n => n.ollama === true)}` })
+    lines.push({ status: probes.ollama, label: `ollama 接続 (${cfg.ollamaUrl})`, note: `使うプラグイン: ${ollamaUsers(plan)}` })
     for (const m of cfg.models) {
       lines.push({ status: probes.models[m] ?? 'unknown', label: `ollama モデル ${m}`, note: '' })
+    }
+    if (plan.plugins.some(p => p.name === 'trust-boundary')) {
+      lines.push({
+        status: probes.ollamaHostAllowed ?? 'unknown',
+        label: `trust-boundary の allowedHosts に ${hostOf(cfg.ollamaUrl) ?? cfg.ollamaUrl} を含む`,
+        note: '含まれないと ollama への送信が止まり、ローカルLLMは使われず既存の動作に戻る',
+      })
     }
   }
   if (plan.notion) {
@@ -147,6 +202,41 @@ export const enabledStatus = (enabledPlugins: unknown, name: string): Status => 
   if (typeof enabledPlugins !== 'object' || enabledPlugins === null) return 'unknown'
   const hit = Object.entries(enabledPlugins).some(([k, v]) => (k === name || k.startsWith(`${name}@`)) && v === true)
   return hit ? 'ok' : 'missing'
+}
+
+const optionsOf = (pluginConfigs: unknown, name: string): Record<string, unknown> | undefined => {
+  if (typeof pluginConfigs !== 'object' || pluginConfigs === null) return undefined
+  for (const [k, v] of Object.entries(pluginConfigs)) {
+    if (k === name || k.startsWith(`${name}@`)) return (v as { options?: Record<string, unknown> } | null)?.options
+  }
+  return undefined
+}
+
+/**
+ * plugin の llmMode。設定が無ければ既定の off。共通基盤と同じく、大文字小文字を無視し、不正な値は off。
+ * settings 自体を読めないときは、呼び出し側が unknown にする。
+ */
+export const llmModeOf = (pluginConfigs: unknown, name: string): LlmModeStatus => {
+  const v = optionsOf(pluginConfigs, name)?.llmMode
+  const mode = typeof v === 'string' ? v.trim().toLowerCase() : undefined
+  return mode === 'auto' || mode === 'always' ? mode : 'off'
+}
+
+export const llmModesOf = (pluginConfigs: unknown | undefined, readable: boolean): LlmModes =>
+  Object.fromEntries(PLUGINS.filter(p => p.needs.llmMode === true).map(p => [p.name, readable ? llmModeOf(pluginConfigs, p.name) : ('unknown' as LlmModeStatus)]))
+
+const DEFAULT_ALLOWED_HOSTS = 'localhost,127.0.0.1,::1,api.notion.com'
+
+/**
+ * trust-boundary の allowedHosts が url のホストを含むか。設定が無ければ既定の許可先で判定する。
+ * 照合は trust-boundary と同じ (完全一致、またはサブドメイン)。ホストを読めない url は不足。
+ */
+export const hostAllowedStatus = (pluginConfigs: unknown, url: string): Status => {
+  const host = hostOf(url)
+  if (host === undefined) return 'unknown'
+  const raw = optionsOf(pluginConfigs, 'trust-boundary')?.allowedHosts
+  const hosts = (typeof raw === 'string' && raw.trim() !== '' ? raw : DEFAULT_ALLOWED_HOSTS).split(',').map(s => s.trim().toLowerCase()).filter(s => s !== '')
+  return hosts.some(h => h === host || host.endsWith(`.${h}`)) ? 'ok' : 'missing'
 }
 
 /** pluginConfigs のキーは `name` または `name@marketplace`。値の中身は見ず、空でないかだけ返す。 */

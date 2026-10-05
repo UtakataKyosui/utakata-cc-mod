@@ -1,0 +1,5 @@
+src/config/load.ts:12:export const loadConfig = (path: string): Config => {
+src/config/load.ts:30:  const raw = readFileSync(path, "utf8")
+src/config/schema.ts:5:export type Config = { port: number; host: string }
+src/main.ts:8:const config = loadConfig(process.env.APP_CONFIG ?? "app.json")
+tests/config.test.ts:4:test("loadConfig は不正な port を拒否する", () => {

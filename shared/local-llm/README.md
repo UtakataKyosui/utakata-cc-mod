@@ -15,6 +15,7 @@ bun run scripts/sync-local-llm.ts --check  # ずれていれば終了コード 1
 - 同梱先の plugin は [scripts/sync-local-llm.ts](../../scripts/sync-local-llm.ts) の `TARGETS` 配列で管理する。plugin を増やすときはここへ足して同期する。現在は subagent-router / code-finder / ctxpack-fetch / verification-gate / change-review。
 - コピーが正本とずれていると `pnpm run test:integration` ([local-llm-sync.itest.ts](../../tests/integration/local-llm-sync.itest.ts)) が失敗する。コピーは直接編集せず、正本を直して同期する。
 - 基盤自体のテストは `pnpm run test:shared` (`bun test ./shared`)。通信はモックで、ollama は不要。
+- plugin のテスト (`claude-code/testing`) で `$.http.fetch` を使うときは `mock.clock(on)` が必要。無いと sleep が先に解決して timeout 扱いになる。
 
 ## 設定キー
 
@@ -163,6 +164,10 @@ const { valid, invalid } = verifyQuotes(source, quotes)                         
 
 - subagent-router: 移行した。userConfig のキー・既定値・範囲は変えず (`llmMode` も追加しない。従来から ollama を常に使うため、`mode: 'always'` 相当)、`register.test.ts` は無改変で通り、統合テストも通る。
 - notion-knowledge: 移行しない。Notion 連携 (process.run の ntn) と一体の独自の問い合わせ・記録フローを持ち、スコープ外とした。
+
+## 効果の測定
+
+`off` / `auto` / `always` の比較手順・フィクスチャ・計測レコードは [evals/local-llm](../../evals/local-llm/README.md)。効果は未測定で、削減率は保証しない。
 
 ## 実モデルでの確認 (任意)
 

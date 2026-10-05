@@ -1,0 +1,115 @@
+[setup] fixture 1 をロードした (3 ms)
+[setup] fixture 2 をロードした (6 ms)
+[setup] fixture 3 をロードした (9 ms)
+[setup] fixture 4 をロードした (12 ms)
+[setup] fixture 5 をロードした (15 ms)
+[setup] fixture 6 をロードした (18 ms)
+[setup] fixture 7 をロードした (21 ms)
+[setup] fixture 8 をロードした (24 ms)
+[setup] fixture 9 をロードした (27 ms)
+[setup] fixture 10 をロードした (30 ms)
+[setup] fixture 11 をロードした (33 ms)
+[setup] fixture 12 をロードした (36 ms)
+[setup] fixture 13 をロードした (39 ms)
+[setup] fixture 14 をロードした (42 ms)
+[setup] fixture 15 をロードした (45 ms)
+[setup] fixture 16 をロードした (48 ms)
+[setup] fixture 17 をロードした (51 ms)
+[setup] fixture 18 をロードした (54 ms)
+[setup] fixture 19 をロードした (57 ms)
+[setup] fixture 20 をロードした (60 ms)
+[setup] fixture 21 をロードした (63 ms)
+[setup] fixture 22 をロードした (66 ms)
+[setup] fixture 23 をロードした (69 ms)
+[setup] fixture 24 をロードした (72 ms)
+[setup] fixture 25 をロードした (75 ms)
+[setup] fixture 26 をロードした (78 ms)
+[setup] fixture 27 をロードした (81 ms)
+[setup] fixture 28 をロードした (84 ms)
+[setup] fixture 29 をロードした (87 ms)
+[setup] fixture 30 をロードした (90 ms)
+[setup] fixture 31 をロードした (93 ms)
+[setup] fixture 32 をロードした (96 ms)
+[setup] fixture 33 をロードした (99 ms)
+[setup] fixture 34 をロードした (102 ms)
+[setup] fixture 35 をロードした (105 ms)
+[setup] fixture 36 をロードした (108 ms)
+[setup] fixture 37 をロードした (111 ms)
+[setup] fixture 38 をロードした (114 ms)
+[setup] fixture 39 をロードした (117 ms)
+[setup] fixture 40 をロードした (120 ms)
+FAIL  src/ui/price.test.tsx > 通貨記号を表示する
+TypeError: Cannot read properties of undefined (reading 'currency')
+    at formatPrice (src/ui/price.ts:27:14)
+    at render (src/ui/price.test.tsx:19:9)
+[teardown] fixture 1 を破棄した
+[teardown] fixture 2 を破棄した
+[teardown] fixture 3 を破棄した
+[teardown] fixture 4 を破棄した
+[teardown] fixture 5 を破棄した
+[teardown] fixture 6 を破棄した
+[teardown] fixture 7 を破棄した
+[teardown] fixture 8 を破棄した
+[teardown] fixture 9 を破棄した
+[teardown] fixture 10 を破棄した
+[teardown] fixture 11 を破棄した
+[teardown] fixture 12 を破棄した
+[teardown] fixture 13 を破棄した
+[teardown] fixture 14 を破棄した
+[teardown] fixture 15 を破棄した
+[teardown] fixture 16 を破棄した
+[teardown] fixture 17 を破棄した
+[teardown] fixture 18 を破棄した
+[teardown] fixture 19 を破棄した
+[teardown] fixture 20 を破棄した
+[teardown] fixture 21 を破棄した
+[teardown] fixture 22 を破棄した
+[teardown] fixture 23 を破棄した
+[teardown] fixture 24 を破棄した
+[teardown] fixture 25 を破棄した
+[teardown] fixture 26 を破棄した
+[teardown] fixture 27 を破棄した
+[teardown] fixture 28 を破棄した
+[teardown] fixture 29 を破棄した
+[teardown] fixture 30 を破棄した
+[teardown] fixture 31 を破棄した
+[teardown] fixture 32 を破棄した
+[teardown] fixture 33 を破棄した
+[teardown] fixture 34 を破棄した
+[teardown] fixture 35 を破棄した
+[teardown] fixture 36 を破棄した
+[teardown] fixture 37 を破棄した
+[teardown] fixture 38 を破棄した
+[teardown] fixture 39 を破棄した
+[teardown] fixture 40 を破棄した
+Coverage summary
+src/module1/index.ts | 61% | 51% | 71%
+src/module2/index.ts | 62% | 52% | 72%
+src/module3/index.ts | 63% | 53% | 73%
+src/module4/index.ts | 64% | 54% | 74%
+src/module5/index.ts | 65% | 55% | 75%
+src/module6/index.ts | 66% | 56% | 76%
+src/module7/index.ts | 67% | 57% | 77%
+src/module8/index.ts | 68% | 58% | 78%
+src/module9/index.ts | 69% | 59% | 79%
+src/module10/index.ts | 70% | 60% | 80%
+src/module11/index.ts | 71% | 61% | 81%
+src/module12/index.ts | 72% | 62% | 82%
+src/module13/index.ts | 73% | 63% | 83%
+src/module14/index.ts | 74% | 64% | 84%
+src/module15/index.ts | 75% | 65% | 85%
+src/module16/index.ts | 76% | 66% | 86%
+src/module17/index.ts | 77% | 67% | 87%
+src/module18/index.ts | 78% | 68% | 88%
+src/module19/index.ts | 79% | 69% | 89%
+src/module20/index.ts | 80% | 70% | 90%
+src/module21/index.ts | 81% | 71% | 91%
+src/module22/index.ts | 82% | 72% | 92%
+src/module23/index.ts | 83% | 73% | 93%
+src/module24/index.ts | 84% | 74% | 94%
+src/module25/index.ts | 85% | 75% | 70%
+src/module26/index.ts | 86% | 76% | 71%
+src/module27/index.ts | 87% | 77% | 72%
+src/module28/index.ts | 88% | 78% | 73%
+src/module29/index.ts | 89% | 79% | 74%
+src/module30/index.ts | 90% | 80% | 75%

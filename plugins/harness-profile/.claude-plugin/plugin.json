@@ -1,8 +1,8 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "harness-profile",
-  "version": "0.1.0",
-  "description": "開発ハーネス用の推奨プロファイル (minimal / standard / full) を示し、/harness で必要な CLI・Notion 設定・ollama 接続の不足を診断するMod",
+  "version": "0.2.0",
+  "description": "開発ハーネス用の推奨プロファイル (minimal / standard / full / local-llm) を示し、/harness で必要な CLI・Notion 設定・ローカルLLM設定・ollama 接続の不足を診断するMod",
   "author": { "name": "UtakataKyosui" },
   "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
   "license": "MIT",
@@ -12,7 +12,7 @@
       "title": "診断する既定のプロファイル",
       "description": "/harness を引数なしで実行したときに診断するプロファイル",
       "default": "standard",
-      "options": ["minimal", "standard", "full"]
+      "options": ["minimal", "standard", "full", "local-llm"]
     },
     "ollamaUrl": {
       "type": "string",
@@ -23,7 +23,7 @@
     "models": {
       "type": "string",
       "title": "存在を確認するモデル (カンマ区切り)",
-      "description": "subagent-router と notion-knowledge が使う判断モデル。ollama に無ければ不足として報告する",
+      "description": "subagent-router・notion-knowledge と、llmMode が off 以外の plugin が使うモデル。ollama に無ければ不足として報告する。各 plugin の models は読まないので、揃えて指定する",
       "default": "tev1:4b,nimble"
     },
     "timeoutSeconds": {

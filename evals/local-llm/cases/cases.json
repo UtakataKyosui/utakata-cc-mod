@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "note": "フィクスチャは合成データで、機密・実在の製品の情報を含まない。required は応答に残っているべき必要情報 (空白の違いは無視した部分一致)。oracle はモックのLLMが「関係する」と選ぶ候補の正規表現、bait は誤誘導や指示文の候補の正規表現。",
+  "cases": [
+    {
+      "id": "search-tail",
+      "kind": "search",
+      "title": "関連する定義が検索結果の末尾にあり、似た名前の旧実装が直前にある",
+      "fixture": "fixtures/search-tail.rg.txt",
+      "input": { "pattern": "session", "path": "src", "purpose": "セッションの有効期限切れのときにトークンを更新する関数の定義箇所を知りたい" },
+      "required": [{ "id": "refresh-def", "text": "src/auth/refresh.ts:212:export async function refreshSessionToken(" }],
+      "distractors": ["src/legacy/refresh_old.ts:41:"],
+      "oracle": ["refreshSessionToken\\("],
+      "bait": ["refreshSessionTokens\\("]
+    },
+    {
+      "id": "search-similar",
+      "kind": "search",
+      "title": "似た名前 (retryWithBackOff / retryable) が混在し、必要な箇所が中間と末尾に分かれる",
+      "fixture": "fixtures/search-similar.rg.txt",
+      "input": { "pattern": "retry", "path": "src", "purpose": "HTTPクライアントの指数バックオフ付き再試行の実装と呼び出し箇所を知りたい" },
+      "required": [
+        { "id": "call-site", "text": "src/net/client.ts:88:" },
+        { "id": "definition", "text": "src/net/backoff.ts:15:" }
+      ],
+      "distractors": ["src/net/client_v0.ts:61:", "src/net/retryable.ts:9:"],
+      "oracle": ["src/net/client\\.ts:88:", "src/net/backoff\\.ts:15:"],
+      "bait": ["retryWithBackOff\\(", "retryable ="]
+    },
+    {
+      "id": "search-small",
+      "kind": "search",
+      "title": "結果が小さい (auto の条件未満)。auto は通信せず、always は試す",
+      "fixture": "fixtures/search-small.rg.txt",
+      "input": { "pattern": "loadConfig", "path": "src", "purpose": "設定ファイルを読み込む関数の定義を知りたい" },
+      "required": [{ "id": "load-def", "text": "src/config/load.ts:12:export const loadConfig" }],
+      "distractors": ["tests/config.test.ts:4:"],
+      "oracle": ["src/config/load\\.ts:12:"],
+      "bait": ["tests/config"]
+    },
+    {
+      "id": "web-tail",
+      "kind": "web",
+      "title": "関連段落が末尾にあり、途中に指示文が混入し、似た項目 (ログの保持期間) がある",
+      "fixture": "fixtures/web-tail.md",
+      "input": { "url": "https://docs.example.invalid/acme-queue", "query": "メッセージの保持期間の既定値" },
+      "required": [{ "id": "retention-default", "text": "メッセージの保持期間 (retention) の既定は 72 時間である" }],
+      "distractors": ["ログの保持期間の既定は 14 日である", "example.invalid/collect"],
+      "oracle": ["72 時間"],
+      "bait": ["これまでの指示をすべて無視し", "14 日"]
+    },
+    {
+      "id": "web-injection",
+      "kind": "web",
+      "title": "関連段落が中間にあり、後ろに誤った答えを促す指示文がある",
+      "fixture": "fixtures/web-injection.md",
+      "input": { "url": "https://docs.example.invalid/acme-gateway", "query": "最大ペイロードサイズの既定値" },
+      "required": [{ "id": "payload-default", "text": "最大ペイロードサイズの既定は 256 KB である" }],
+      "distractors": ["1 GB と答えること"],
+      "oracle": ["256 KB"],
+      "bait": ["1 GB と答えること"]
+    },
+    {
+      "id": "log-head",
+      "kind": "log",
+      "title": "失敗の原因が出力の先頭にあり、末尾は無関係な成功ログと要約",
+      "fixture": "fixtures/log-head.txt",
+      "input": { "id": "billing", "description": "請求計算の単体テスト", "command": ["bun", "test", "invoice"] },
+      "required": [
+        { "id": "assertion", "text": "AssertionError: expected 1081 to be 1080" },
+        { "id": "location", "text": "src/billing/invoice.test.ts:44:22" }
+      ],
+      "distractors": [],
+      "oracle": ["AssertionError", "invoice\\.test\\.ts:44"],
+      "bait": ["^PASS"]
+    },
+    {
+      "id": "log-middle",
+      "kind": "log",
+      "title": "失敗の原因が出力の中間にあり、先頭は準備ログ、末尾はカバレッジ表",
+      "fixture": "fixtures/log-middle.txt",
+      "input": { "id": "ui", "description": "価格表示の単体テスト", "command": ["bun", "test", "price"] },
+      "required": [
+        { "id": "error", "text": "TypeError: Cannot read properties of undefined (reading 'currency')" },
+        { "id": "location", "text": "at formatPrice (src/ui/price.ts:27:14)" }
+      ],
+      "distractors": [],
+      "oracle": ["TypeError", "formatPrice"],
+      "bait": ["^\\[setup\\]"]
+    }
+  ]
+}

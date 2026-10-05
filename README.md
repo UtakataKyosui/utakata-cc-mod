@@ -31,7 +31,7 @@ Claude Modのフックを実行できるClaude Code環境が必要。
 | [workspace-isolation](plugins/workspace-isolation/README.md) | 書き込みを行う並列タスクに専用 git worktree を割り当て、ベース・担当範囲・成果差分を追跡し、競合と範囲外変更を検出してから安全に統合するMod |
 | [change-review](plugins/change-review/README.md) | 実装後の差分を、実装者とは別の読み取り専用レビュアー SubAgent に点検させるMod。指摘の形式検証、再レビュー回数の上限、未実施・未解決の明示を行う |
 | [verification-gate](plugins/verification-gate/README.md) | リポジトリごとの検証コマンドと受け入れ条件を登録し、実行結果と変更状態の記録に基づいて完了を判定させるMod |
-| [harness-profile](plugins/harness-profile/README.md) | 開発ハーネス用の推奨プロファイル (minimal / standard / full) を示し、/harness で必要な CLI・Notion 設定・ollama 接続の不足を診断する |
+| [harness-profile](plugins/harness-profile/README.md) | 開発ハーネス用の推奨プロファイル (minimal / standard / full / local-llm) を示し、/harness で必要な CLI・Notion 設定・ローカルLLM設定・ollama 接続の不足を診断する |
 | [stack-pr](plugins/stack-pr/README.md) | Issue の実装を頼まれたとき、変更範囲を見積もらせ、大規模なら gh stack の Stack PR に分割して進めさせる |
 
 ## 組み合わせ
@@ -60,5 +60,7 @@ pnpm run test:integration
 `validate:all` と `test:all` は全プラグインを順に検証する。`test:integration` は実プラグインを組み合わせた統合テストで、bun が必要。workspace-isolation の実 git を使うテストは `bun test ./plugins/workspace-isolation/tests/git.itest.ts` で実行する。
 
 ローカルLLM(ollama)を使う各プラグインの共通呼び出し基盤は [shared/local-llm](shared/local-llm/README.md) にある。正本を編集したら `pnpm run sync:local-llm` で各プラグインへ同梱コピーを更新する(ずれは `test:integration` で検出する)。基盤自体のテストは `pnpm run test:shared`。
+
+ローカルLLM併用の評価(off / auto / always の比較手順、機密を含まないフィクスチャ、計測レコードとレポート)は [evals/local-llm](evals/local-llm/README.md) にある。通常のテストはモックで動き(`pnpm run test:evals`、`test:integration` にも含む)、実 Claude・実 ollama での測定は手動手順として分けている。効果は未測定で、削減率は保証しない。
 
 Mod対応のClaude Codeで実行する。確認した環境(Claude Code 2.1.289)と制約は [harness-profile](plugins/harness-profile/README.md) を参照。依存CLIや外部サービスの前提条件は各READMEに記載している。

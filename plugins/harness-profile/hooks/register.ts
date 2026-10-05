@@ -1,7 +1,7 @@
 import type { Register } from 'claude-code'
 import {
-  type Config, type Plan, type Probes, type Status,
-  PROFILES, buildLines, databaseStatus, enabledStatus, hasModel, modelNames, parseProfileArg, planFor, readConfig, render,
+  type Config, type Plan, type ProfileName, type Probes, type Status,
+  PROFILES, buildLines, databaseStatus, enabledStatus, hasModel, hostAllowedStatus, llmModesOf, modelNames, parseProfileArg, planFor, readConfig, render,
 } from './policy'
 
 const settle = async (work: Promise<Status>): Promise<Status> => work.catch(() => 'unknown')
@@ -34,21 +34,24 @@ const probeNotionAuth = ($: any, cfg: Config): Promise<Status> =>
     ),
   )
 
-async function diagnose($: any, cfg: Config, plan: Plan): Promise<Probes> {
+async function diagnose($: any, cfg: Config, profile: ProfileName): Promise<{ plan: Plan; probes: Probes }> {
   const settings = await $.settings.read().catch(() => undefined)
+  const plan = planFor(profile, llmModesOf(settings?.pluginConfigs, settings !== undefined))
   const [cliEntries, ollama, notionAuth] = await Promise.all([
     Promise.all(plan.cli.map(async n => [n, await hasCli($, n)] as const)),
     plan.ollama ? probeOllama($, cfg) : Promise.resolve({ ollama: 'ok' as Status, models: {} }),
     plan.notion && plan.cli.includes('ntn') ? probeNotionAuth($, cfg) : Promise.resolve('ok' as Status),
   ])
-  return {
+  const probes: Probes = {
     cli: Object.fromEntries(cliEntries),
     ollama: ollama.ollama,
     models: ollama.models,
     notionAuth,
     notionDatabase: settings === undefined ? 'unknown' : databaseStatus(settings.pluginConfigs),
     enabled: Object.fromEntries(plan.plugins.map(p => [p.name, settings === undefined ? 'unknown' : enabledStatus(settings.enabledPlugins, p.name)])),
+    ollamaHostAllowed: settings === undefined ? 'unknown' : hostAllowedStatus(settings.pluginConfigs, cfg.ollamaUrl),
   }
+  return { plan, probes }
 }
 
 export const register: Register = (on, options) => {
@@ -66,8 +69,7 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'harness' }, async ($, e, next) => {
     const profile = parseProfileArg(e.args, cfg.profile)
     if (profile === undefined) return { text: `プロファイルは ${Object.keys(PROFILES).join(' / ')} のいずれかを指定すること。` }
-    const plan = planFor(profile)
-    const probes = await diagnose($, cfg, plan)
+    const { plan, probes } = await diagnose($, cfg, profile)
     return { text: render(profile, buildLines(plan, probes, cfg)) }
   })
 }

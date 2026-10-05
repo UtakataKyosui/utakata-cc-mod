@@ -1,0 +1,58 @@
+src/api/router.ts:10:const session = await store.load(req.sessionId)
+src/api/middleware.ts:17:if (!session) return unauthorized()
+src/store/session_store.ts:24:const maxAge = session.rememberMe ? WEEK : DAY
+src/ui/header.tsx:31:// session が無ければ 401 を返す
+src/auth/login.ts:38:export type SessionId = string & { readonly brand: "SessionId" }
+src/auth/logout.ts:45:metrics.count("session.active", sessions.length)
+src/util/cookies.ts:52:log.debug("session loaded", { id: session.id })
+src/jobs/cleanup.ts:59:await store.delete(session.id) // session を破棄する
+src/api/router.ts:66:const session = await store.load(req.sessionId)
+src/api/middleware.ts:73:if (!session) return unauthorized()
+src/store/session_store.ts:80:const maxAge = session.rememberMe ? WEEK : DAY
+src/ui/header.tsx:87:// session が無ければ 401 を返す
+src/auth/login.ts:94:export type SessionId = string & { readonly brand: "SessionId" }
+src/auth/logout.ts:101:metrics.count("session.active", sessions.length)
+src/util/cookies.ts:108:log.debug("session loaded", { id: session.id })
+src/jobs/cleanup.ts:115:await store.delete(session.id) // session を破棄する
+src/api/router.ts:122:const session = await store.load(req.sessionId)
+src/api/middleware.ts:129:if (!session) return unauthorized()
+src/store/session_store.ts:136:const maxAge = session.rememberMe ? WEEK : DAY
+src/ui/header.tsx:143:// session が無ければ 401 を返す
+src/auth/login.ts:150:export type SessionId = string & { readonly brand: "SessionId" }
+src/auth/logout.ts:157:metrics.count("session.active", sessions.length)
+src/util/cookies.ts:164:log.debug("session loaded", { id: session.id })
+src/jobs/cleanup.ts:171:await store.delete(session.id) // session を破棄する
+src/api/router.ts:178:const session = await store.load(req.sessionId)
+src/api/middleware.ts:185:if (!session) return unauthorized()
+src/store/session_store.ts:192:const maxAge = session.rememberMe ? WEEK : DAY
+src/ui/header.tsx:199:// session が無ければ 401 を返す
+src/auth/login.ts:206:export type SessionId = string & { readonly brand: "SessionId" }
+src/auth/logout.ts:213:metrics.count("session.active", sessions.length)
+src/util/cookies.ts:220:log.debug("session loaded", { id: session.id })
+src/jobs/cleanup.ts:227:await store.delete(session.id) // session を破棄する
+src/api/router.ts:234:const session = await store.load(req.sessionId)
+src/api/middleware.ts:241:if (!session) return unauthorized()
+src/store/session_store.ts:248:const maxAge = session.rememberMe ? WEEK : DAY
+src/ui/header.tsx:255:// session が無ければ 401 を返す
+src/auth/login.ts:262:export type SessionId = string & { readonly brand: "SessionId" }
+src/auth/logout.ts:269:metrics.count("session.active", sessions.length)
+src/util/cookies.ts:276:log.debug("session loaded", { id: session.id })
+src/jobs/cleanup.ts:283:await store.delete(session.id) // session を破棄する
+src/api/router.ts:290:const session = await store.load(req.sessionId)
+src/api/middleware.ts:297:if (!session) return unauthorized()
+src/store/session_store.ts:304:const maxAge = session.rememberMe ? WEEK : DAY
+src/ui/header.tsx:311:// session が無ければ 401 を返す
+src/auth/login.ts:318:export type SessionId = string & { readonly brand: "SessionId" }
+src/auth/logout.ts:325:metrics.count("session.active", sessions.length)
+src/util/cookies.ts:332:log.debug("session loaded", { id: session.id })
+src/jobs/cleanup.ts:339:await store.delete(session.id) // session を破棄する
+src/api/router.ts:346:const session = await store.load(req.sessionId)
+src/api/middleware.ts:353:if (!session) return unauthorized()
+src/store/session_store.ts:360:const maxAge = session.rememberMe ? WEEK : DAY
+src/ui/header.tsx:367:// session が無ければ 401 を返す
+src/auth/login.ts:374:export type SessionId = string & { readonly brand: "SessionId" }
+src/auth/logout.ts:381:metrics.count("session.active", sessions.length)
+src/util/cookies.ts:388:log.debug("session loaded", { id: session.id })
+src/jobs/cleanup.ts:395:await store.delete(session.id) // session を破棄する
+src/legacy/refresh_old.ts:41:export async function refreshSessionTokens(session: Session): Promise<Session> { // deprecated: 旧API、呼び出し元なし
+src/auth/refresh.ts:212:export async function refreshSessionToken(session: Session): Promise<Session> {
