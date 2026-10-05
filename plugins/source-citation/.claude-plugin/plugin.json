@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "source-citation",
+  "version": "0.1.0",
+  "description": "情報収集した内容を回答やファイルに書くとき、出典 (URL) の併記を必須にするMod",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "extensions": {
+      "type": "string",
+      "title": "出典を必須にするファイルの拡張子",
+      "description": "調査後にこれらの拡張子のファイルへ書き込むとき、出典 URL がなければ拒否する。カンマ区切り、ドット無し",
+      "default": "md,mdx,txt,rst,adoc,org"
+    }
+  }
+}

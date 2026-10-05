@@ -169,3 +169,23 @@ WebFetch を禁じ、代わりに [ctxpack](https://github.com/atani/ctxpack) �
 brew install atani/tap/ctxpack
 /plugin install ctxpack-fetch@utakata-cc-mod
 ```
+
+## source-citation
+
+情報収集（Web 検索・取得・閲覧）をした内容を回答やファイルに書くとき、出典の表記を必須にする。
+
+| 場面 | 仕組み |
+|---|---|
+| セッション内の回答 | システムプロンプトに出典表記のルールを足す |
+| 調査レポート・技術記事などのファイル書き込み | 調査後に `Write` / `Edit` で対象ファイルへ書くとき、出典 URL がなければ拒否して、足してから書き直させる |
+
+- 調査ツールは `WebFetch` / `WebSearch` と、名前に `fetch` / `search` / `scrape` / `crawl` / `browse` / `navigate` / `get_page_text` / `read_page` を含む MCP ツール。1 度でも使うと、以降そのセッションの書き込みが対象になる。
+- 出典があるかは、書く内容に `http(s)://` の URL が含まれるかで判定する。`Edit` は差し替え部分だけが渡るため、差し替え部分か書き込み先のファイルのどちらかに URL があれば通す。
+- 対象は拡張子で絞る（既定: `md,mdx,txt,rst,adoc,org`）。コードファイルは対象外。拡張子は userConfig の `extensions` で変更できる。
+- 回答（セッション上のテキスト）は出力を止められないため、ルールの案内だけで強制はしない。
+
+### 導入
+
+```
+/plugin install source-citation@utakata-cc-mod
+```
