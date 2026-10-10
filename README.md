@@ -18,7 +18,7 @@ Claude Modのフックを実行できるClaude Code環境が必要。
 | プラグイン | 役割 |
 |---|---|
 | [goal-orchestrator](plugins/goal-orchestrator/README.md) | /goal の内容をタスク分解・TODO化・実行順序付けし、各タスクを SubAgent に委譲させる |
-| [auto-compact](plugins/auto-compact/README.md) | ターン終了時の使用率やキャッシュ失効を見て自動で Compaction し、要約をテキストに保存する |
+| [auto-compact](plugins/auto-compact/README.md) | ターン終了時の使用率・ターン数やキャッシュ失効を見て自動で Compaction し、要約をテキストに保存する。終了前の Issue 化・ドキュメント化を Agent に義務づける |
 | [subagent-router](plugins/subagent-router/README.md) | SubAgent の起動時に、model と effort を ollama の決定モデル (nimble) に判断させて振り分ける |
 | [advanced-rust-cli](plugins/advanced-rust-cli/README.md) | Rustで実装された基礎的なコマンドの改善版のみを常に使用するように挙動を変更するMod |
 | [code-finder](plugins/code-finder/README.md) | fd と ripgrep でファイル名・コード内容を検索するツール (find_files / search_code) をモデルに提供する |

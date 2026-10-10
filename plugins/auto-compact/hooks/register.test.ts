@@ -1,7 +1,10 @@
 import { test, expect, mock } from 'claude-code/testing'
 import {
+  HANDOFF_RULE,
   buildDocument,
   fileName,
+  instructionsFor,
+  isDueAtTurnEnd,
   readConfig,
   shouldCompactAtTurnEnd,
   shouldCompactOnIdle,
@@ -163,4 +166,52 @@ test('キャッシュが生きている再開では Compaction しない', async
   await clock.advance(1000)
 
   expect(calls).toEqual([])
+})
+
+test('ターン終了時の判定は triggerMode ごとに変わる', () => {
+  const at = (options: object, turns: number, percent: number | undefined) => isDueAtTurnEnd(readConfig(options), turns, percent)
+  expect(at({}, 1, 64)).toBe(false)
+  expect(at({}, 1, 65)).toBe(true)
+  expect(at({ triggerMode: 'turns', everyNTurns: 3 }, 2, 99)).toBe(false)
+  expect(at({ triggerMode: 'turns', everyNTurns: 3 }, 3, 0)).toBe(true)
+  expect(at({ triggerMode: 'every' }, 1, undefined)).toBe(true)
+})
+
+test('triggerMode と handoff の既定値と不正値', () => {
+  expect(readConfig({})).toMatchObject({ triggerMode: 'threshold', everyNTurns: 3, handoff: true })
+  expect(readConfig({ triggerMode: 'bogus', handoff: 'off' })).toMatchObject({ triggerMode: 'threshold', handoff: false })
+})
+
+test('Agent への規則と要約の指示に必要な項目が入る', () => {
+  for (const word of ['gh issue create', 'README', 'commit', '## Handoff', 'Done', 'Result', 'Next', 'Refs']) {
+    expect(HANDOFF_RULE).toContain(word)
+  }
+  expect(instructionsFor(readConfig({}))).toContain('## Handoff')
+  expect(instructionsFor(readConfig({}))).toContain('<next>')
+  expect(instructionsFor(readConfig({ handoff: 'off' }))).not.toContain('<next>')
+  expect(instructionsFor(readConfig({ handoff: 'off' }))).not.toContain('## Handoff')
+})
+
+test('every では使用率が低くても毎ターン Compaction する', { options: { triggerMode: 'every' } }, async ($, on) => {
+  const calls: string[] = []
+  const clock = setup($, on, { v: 5 }, calls, {})
+
+  await complete($)
+  await clock.advance(1000)
+  await complete($)
+  await clock.advance(1000)
+
+  expect(calls).toEqual(['compact', 'compact'])
+})
+
+test('turns では指定ターン数ごとに Compaction する', { options: { triggerMode: 'turns', everyNTurns: 2 } }, async ($, on) => {
+  const calls: string[] = []
+  const clock = setup($, on, { v: 5 }, calls, {})
+
+  await complete($)
+  await clock.advance(1000)
+  expect(calls).toEqual([])
+  await complete($)
+  await clock.advance(1000)
+  expect(calls).toEqual(['compact'])
 })

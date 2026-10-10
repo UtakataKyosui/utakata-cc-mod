@@ -2,24 +2,58 @@
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "auto-compact",
   "version": "0.1.0",
-  "description": "ターン終了時のコンテキスト使用率やプロンプトキャッシュの失効を見て自動で Compaction し、要約をテキストに保存する",
-  "author": { "name": "UtakataKyosui" },
+  "description": "ターン終了時のコンテキスト使用率・ターン数、またはプロンプトキャッシュの失効を見て自動で Compaction し、要約をテキストに保存する。終了前の Issue 化・ドキュメント化を Agent に義務づけ、会話には何をやったか・何ができたか・次に何をやるかだけを残す",
+  "author": {
+    "name": "UtakataKyosui"
+  },
   "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
   "license": "MIT",
   "userConfig": {
+    "triggerMode": {
+      "type": "string",
+      "title": "ターン終了時の Compaction のタイミング",
+      "description": "threshold は使用率が threshold 以上のとき（キャッシュ失効時の Compaction も行う）。turns は everyNTurns ターンごと。every は毎ターン。turns と every ではキャッシュ失効時の Compaction は行わない",
+      "options": [
+        "threshold",
+        "turns",
+        "every"
+      ],
+      "default": "threshold"
+    },
+    "everyNTurns": {
+      "type": "number",
+      "title": "Compaction の間隔 (ターン数)",
+      "description": "triggerMode が turns のとき、前回の Compaction からこのターン数が過ぎたら Compaction する",
+      "default": 3,
+      "min": 1,
+      "max": 1000
+    },
+    "handoff": {
+      "type": "string",
+      "title": "Handoff 規則",
+      "description": "on は、ターン終了前の Issue 化・ドキュメント化・commit と、最終回答末尾の Handoff ブロックを Agent に義務づけ、要約も Done / Result / Next / Refs に絞る。off は従来の要約指示のまま",
+      "options": [
+        "on",
+        "off"
+      ],
+      "default": "on"
+    },
     "threshold": {
       "type": "number",
       "title": "ターン終了時の Compaction 閾値 (%)",
-      "description": "ターン終了時にコンテキスト使用率がこの値以上なら Compaction する",
+      "description": "triggerMode が threshold のとき、ターン終了時にコンテキスト使用率がこの値以上なら Compaction する",
       "default": 65,
-      "min": 30,
+      "min": 1,
       "max": 95
     },
     "cacheTtlMinutes": {
       "type": "string",
       "title": "プロンプトキャッシュの TTL (分)",
       "description": "最後のターン終了からこの時間が経つとキャッシュが失効したとみなす。目安は Max プランが 60、Pro と API キーが 5",
-      "options": ["5", "60"],
+      "options": [
+        "5",
+        "60"
+      ],
       "default": "5"
     },
     "idleMinPercent": {
@@ -34,7 +68,11 @@
       "type": "string",
       "title": "Compaction 内容の保存",
       "description": "off は保存しない。summary は要約のみ、full は要約と Compaction 前の会話の読み物版を保存する",
-      "options": ["off", "summary", "full"],
+      "options": [
+        "off",
+        "summary",
+        "full"
+      ],
       "default": "summary"
     },
     "saveDir": {

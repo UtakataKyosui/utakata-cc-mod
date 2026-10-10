@@ -1,6 +1,11 @@
 export type SaveMode = 'off' | 'summary' | 'full'
 
+export type TriggerMode = 'threshold' | 'turns' | 'every'
+
 export type Config = {
+  triggerMode: TriggerMode
+  everyNTurns: number
+  handoff: boolean
   threshold: number
   ttlMs: number
   idleMinPercent: number
@@ -16,7 +21,11 @@ export const readConfig = (options: Readonly<Record<string, unknown>>): Config =
     return Number.isFinite(v) && v > 0 ? v : fallback
   }
   const mode = options.saveMode
+  const triggerMode = options.triggerMode
   return {
+    triggerMode: triggerMode === 'turns' || triggerMode === 'every' ? triggerMode : 'threshold',
+    everyNTurns: Math.round(num('everyNTurns', 3)),
+    handoff: options.handoff !== 'off',
     threshold: num('threshold', 65),
     ttlMs: num('cacheTtlMinutes', 5) * 60_000,
     idleMinPercent: num('idleMinPercent', 30),
@@ -27,6 +36,12 @@ export const readConfig = (options: Readonly<Record<string, unknown>>): Config =
 
 export const shouldCompactAtTurnEnd = (percent: number | undefined, threshold: number) =>
   percent !== undefined && percent >= threshold
+
+export const isDueAtTurnEnd = (cfg: Config, turnsSinceCompact: number, percent: number | undefined) => {
+  if (cfg.triggerMode === 'every') return true
+  if (cfg.triggerMode === 'turns') return turnsSinceCompact >= cfg.everyNTurns
+  return shouldCompactAtTurnEnd(percent, cfg.threshold)
+}
 
 export const shouldCompactOnIdle = (percent: number | undefined, floor: number) =>
   percent !== undefined && percent >= floor
@@ -84,3 +99,41 @@ export const ttlFromResume = (gapSec: number | undefined, expired: boolean | und
   if (!expired && gapMs > TTL_5M) return TTL_1H
   return undefined
 }
+
+export const HANDOFF_RULE = [
+  'このセッションは自動で Compaction される。会話に残る保証があるのは、末尾の Handoff ブロックだけである。会話の外に書き出していない情報は失われうる。',
+  '',
+  'ターンを終える前に、後に残すべきものを会話の外へ書き出す。',
+  '- Issue: 具体的で着手可能な後続タスク・バグ・未決事項は GitHub Issue にする（gh issue create）。先に既存 Issue を検索し、一致するものがあれば重複させずコメントで足す。憶測や、このターンで解決したものは作らない。',
+  '- ドキュメント: 後から読む人に必要な設計判断・制約・手順・調査結果は、リポジトリのドキュメント（README、docs/、ADR、コードコメント）に書く。既存ページがあれば更新する。',
+  '- コード: 完了した作業は意味のある単位で commit する。記録されていない未コミットの状態を残さない。',
+  '対象は目の前のタスクに限る。リモートが無い、または gh が使えないときは、Issue の文面をドキュメントに書き、その旨を伝える。',
+  '',
+  '最終回答の末尾には、次のブロックを短く具体的に付ける。ブロックの後には何も書かない。',
+  '',
+  '## Handoff',
+  '- Done: このターンで実施したこと。',
+  '- Result: 動くようになった・確認できたこと。失敗したこと・未検証のこと。',
+  '- Next: 次にやること。ユーザーの未対応の依頼を含む。',
+  '- Refs: このターンで書いた・触れたパス、ブランチ、commit、Issue/PR 番号、ドキュメントのページ。',
+].join('\n')
+
+export const INSTRUCTIONS_PLAIN =
+  '進行中のタスク、決定事項、未解決の問題、変更したファイルと次にやることを優先して残す'
+
+export const INSTRUCTIONS_HANDOFF = [
+  '残すのは done / result / next / refs の4項目だけにして、次の XML 形式で出力する。番号付き箇条書きや入れ子の箇条書きは使わない。',
+  '<handoff>',
+  '  <done>このターンまでに実施したこと。1項目ずつ <item> で書く</done>',
+  '  <result>動くようになったこと、確認できたこと、失敗・未検証のこと。1項目ずつ <item> で書く</result>',
+  '  <next>これからやること。着手順に <item> で書く</next>',
+  '  <refs>パス、ブランチ、commit、Issue/PR 番号、書いたドキュメント。1項目ずつ <item> で書く</refs>',
+  '</handoff>',
+  'done と result は過去の事実だけ、next はこれからの行動だけを書き、混ぜない。',
+  "会話中に '## Handoff' ブロックがあれば、直近のものを正本にする。Refs はそのまま引き継ぎ、next が依存する Issue/PR 番号・ブランチ・パス・commit を足す。",
+  '前回の要約の next のうち未完了のものは引き継ぎ、完了したものは落とす。',
+  'それ以外（ファイルの中身、ツール出力、調査の経緯、推論）は捨てる。',
+  'すべてコードベース、ドキュメント、Issue、PR から辿り直せる前提にする。',
+].join('\n')
+
+export const instructionsFor = (cfg: Config) => (cfg.handoff ? INSTRUCTIONS_HANDOFF : INSTRUCTIONS_PLAIN)

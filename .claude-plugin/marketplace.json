@@ -13,7 +13,7 @@
     {
       "name": "auto-compact",
       "source": "./plugins/auto-compact",
-      "description": "ターン終了時の使用率やキャッシュ失効を見て自動で Compaction し、要約をテキストに保存する"
+      "description": "ターン終了時の使用率・ターン数やキャッシュ失効を見て自動で Compaction し、要約をテキストに保存する。終了前の Issue 化・ドキュメント化を Agent に義務づける"
     },
     {
       "name": "subagent-router",

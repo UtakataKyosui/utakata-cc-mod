@@ -1,12 +1,14 @@
 import type { Register } from 'claude-code'
 import {
   COOLDOWN_TURNS,
+  HANDOFF_RULE,
   type Config,
   buildDocument,
   fileName,
+  instructionsFor,
+  isDueAtTurnEnd,
   readConfig,
   resolveDir,
-  shouldCompactAtTurnEnd,
   shouldCompactOnIdle,
   ttlFromLabel,
   ttlFromResume,
@@ -15,10 +17,13 @@ import {
 const SETTLE_MS = 1000
 const RETRY_LIMIT = 5
 
-const INSTRUCTIONS =
-  '進行中のタスク、決定事項、未解決の問題、変更したファイルと次にやることを優先して残す'
-
-type State = { idleTimer: { cancel: () => void } | undefined; running: boolean; cooldown: number; ttlMs: number }
+type State = {
+  idleTimer: { cancel: () => void } | undefined
+  running: boolean
+  cooldown: number
+  ttlMs: number
+  turns: number
+}
 
 const cancelIdle = (state: State) => {
   state.idleTimer?.cancel()
@@ -60,11 +65,12 @@ async function save($: any, cfg: Config, trigger: string, messages: readonly any
 async function compact($: any, state: State, cfg: Config, why: string) {
   if (state.running) return
   state.running = true
+  state.turns = 0
   try {
     for (let i = 0; i < RETRY_LIMIT; i++) {
       try {
         const before = cfg.saveMode === 'full' ? await $.session.messages() : []
-        const r = await $.session.compact({ instructions: INSTRUCTIONS })
+        const r = await $.session.compact({ instructions: instructionsFor(cfg) })
         if (r.skip !== undefined) {
           $.ui.log(`auto-compact: skipped (${r.skip})`, { to: 'debug' })
           return
@@ -72,7 +78,7 @@ async function compact($: any, state: State, cfg: Config, why: string) {
         await save($, cfg, 'plugin', before, r)
         const { context } = await $.session.usage()
         const after = r.tokensAfter !== undefined ? (r.tokensAfter / context.window) * 100 : 0
-        if (after >= cfg.threshold) state.cooldown = COOLDOWN_TURNS
+        if (cfg.triggerMode === 'threshold' && after >= cfg.threshold) state.cooldown = COOLDOWN_TURNS
         $.ui.toast(`auto-compact: ${why}のため Compaction した`)
         return
       } catch {
@@ -93,14 +99,23 @@ async function onIdle($: any, state: State, cfg: Config) {
   }
 }
 
+const turnEndReason = (cfg: Config, percent: number | undefined) =>
+  cfg.triggerMode === 'turns'
+    ? `${cfg.everyNTurns}ターン経過した`
+    : cfg.triggerMode === 'every'
+      ? 'ターンが終わった'
+      : `使用率が ${percent}% に達した`
+
 async function check($: any, state: State, cfg: Config) {
+  state.turns++
   const { context } = await $.session.usage()
   if (state.cooldown > 0) {
     state.cooldown--
-  } else if (shouldCompactAtTurnEnd(context.percent, cfg.threshold)) {
-    await compact($, state, cfg, `使用率が ${context.percent}% に達した`)
+  } else if (isDueAtTurnEnd(cfg, state.turns, context.percent)) {
+    await compact($, state, cfg, turnEndReason(cfg, context.percent))
     return
   }
+  if (cfg.triggerMode !== 'threshold') return
   cancelIdle(state)
   state.idleTimer = $.clock.after(state.ttlMs, () => void onIdle($, state, cfg).catch(() => {}))
 }
@@ -115,6 +130,7 @@ type ResumeInfo = {
 async function onResume($: any, state: State, cfg: Config, e: ResumeInfo) {
   const learned = ttlFromResume(e.seconds_since_last_response, e.prompt_cache_likely_expired)
   if (learned !== undefined) state.ttlMs = learned
+  if (cfg.triggerMode !== 'threshold') return
   if (e.prompt_cache_likely_expired !== true || e.context_tokens === undefined) return
   const { context } = await $.session.usage()
   const percent = (e.context_tokens / context.window) * 100
@@ -125,7 +141,7 @@ async function onResume($: any, state: State, cfg: Config, e: ResumeInfo) {
 
 export const register: Register = (on, options) => {
   const cfg = readConfig(options)
-  const state: State = { idleTimer: undefined, running: false, cooldown: 0, ttlMs: cfg.ttlMs }
+  const state: State = { idleTimer: undefined, running: false, cooldown: 0, ttlMs: cfg.ttlMs, turns: 0 }
 
   on('classic.SessionStart', ($, e, next) => {
     if (e.source === 'resume' || e.source === 'fork') {
@@ -137,6 +153,12 @@ export const register: Register = (on, options) => {
   on('classic.PreModelSwitch', ($, e, next) => {
     state.ttlMs = ttlFromLabel(e.cache_ttl) ?? state.ttlMs
     return next(e)
+  })
+
+  on('prompt.compose', async ($, e, next) => {
+    const { sections } = await next(e)
+    if (!cfg.handoff) return { sections }
+    return { sections: [...sections, { id: 'auto-compact:handoff', text: HANDOFF_RULE, scope: 'session' }] }
   })
 
   on('turn.start', ($, e, next) => {
@@ -153,6 +175,7 @@ export const register: Register = (on, options) => {
 
   on('session.compact', async ($, e, next) => {
     cancelIdle(state)
+    state.turns = 0
     const r = await next(e)
     if (e.trigger === 'precompute' || e.agentId !== undefined) return r
     if (r.skip !== undefined) return r
