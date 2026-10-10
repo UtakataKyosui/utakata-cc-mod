@@ -16,6 +16,11 @@
       "description": "ターン終了時の使用率やキャッシュ失効を見て自動で Compaction し、要約をテキストに保存する"
     },
     {
+      "name": "compact-every-turn",
+      "source": "./plugins/compact-every-turn",
+      "description": "ターン終了時に Compaction し、「何をやったか・何ができたか・次に何をやるか」だけを残す。終了前の Issue 化・ドキュメント化を Agent に義務づける"
+    },
+    {
       "name": "subagent-router",
       "source": "./plugins/subagent-router",
       "description": "SubAgent の起動時に、model と effort を ollama の決定モデル (nimble) に判断させて振り分ける"
