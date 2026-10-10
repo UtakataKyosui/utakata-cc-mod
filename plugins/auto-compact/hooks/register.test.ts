@@ -187,6 +187,8 @@ test('Agent への規則と要約の指示に必要な項目が入る', () => {
     expect(HANDOFF_RULE).toContain(word)
   }
   expect(instructionsFor(readConfig({}))).toContain('## Handoff')
+  expect(instructionsFor(readConfig({}))).toContain('<next>')
+  expect(instructionsFor(readConfig({ handoff: 'off' }))).not.toContain('<next>')
   expect(instructionsFor(readConfig({ handoff: 'off' }))).not.toContain('## Handoff')
 })
 

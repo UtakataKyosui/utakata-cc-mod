@@ -33,7 +33,7 @@
 | ドキュメント | 設計判断・制約・手順・調査結果 | 既存ページがあれば更新する |
 | コード | 完了した作業 | 意味のある単位で commit する |
 
-最終回答の末尾には `## Handoff`（Done / Result / Next / Refs）を付けさせる。要約はこのブロックを正本にして、Refs（パス・ブランチ・commit・Issue/PR 番号）を引き継ぎ、前回の Next のうち未完了のものを残す。リモートや `gh` が無い環境では、Issue の文面をドキュメント側に書かせる。`off` にすると規則は与えず、要約の指示も従来のものに戻る。
+最終回答の末尾には `## Handoff`（Done / Result / Next / Refs）を付けさせる。要約は `<handoff>`（`<done>` / `<result>` / `<next>` / `<refs>`、各 `<item>`）の XML 形式で出力させ、このブロックを正本にして、Refs（パス・ブランチ・commit・Issue/PR 番号）を引き継ぎ、前回の Next のうち未完了のものを残す。リモートや `gh` が無い環境では、Issue の文面をドキュメント側に書かせる。`off` にすると規則は与えず、要約の指示も従来のものに戻る。
 
 規則は Compaction のタイミングに関わらず毎ターン効く。Agent が Issue を作るため、不要な Issue が増える場合は規則の文面（[policy.ts](hooks/policy.ts)）を調整する。Handoff の出力は Agent の遵守に依存し、強制しない。
 
@@ -51,7 +51,7 @@
 |---|---|---|---|
 | `triggerMode` | string | `"threshold"` | ターン終了時の Compaction のタイミング。選択肢: threshold, turns, every |
 | `everyNTurns` | number | `3` | turns のときの間隔（ターン数）。範囲: 1〜1000 |
-| `handoff` | string | `"on"` | Handoff 規則を Agent に与え、要約を Done / Result / Next / Refs に絞る。選択肢: on, off |
+| `handoff` | string | `"on"` | Handoff 規則を Agent に与え、要約を XML 形式の done / result / next / refs に絞る。選択肢: on, off |
 | `threshold` | number | `65` | threshold のとき、ターン終了時にコンテキスト使用率がこの値以上なら Compaction する。範囲: 1〜95 |
 | `cacheTtlMinutes` | string | `"5"` | 最後のターン終了からこの時間が経つとキャッシュが失効したとみなす。目安は Max プランが 60、Pro と API キーが 5 選択肢: 5, 60。 |
 | `idleMinPercent` | number | `30` | キャッシュ失効時は、使用率がこの値以上のときだけ Compaction する 範囲: 5〜95。 |
