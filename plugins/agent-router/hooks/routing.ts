@@ -56,7 +56,7 @@ export function parseRoles(text: string): Record<string, RoleSpec> {
 export type Frontmatter = { hasModel: boolean; hasEffort: boolean };
 
 export function readFrontmatter(markdown: string): Frontmatter {
-  const block = markdown.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
+  const block = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "";
   return {
     hasModel: /^model:\s*\S/m.test(block),
     hasEffort: /^effort:\s*\S/m.test(block),

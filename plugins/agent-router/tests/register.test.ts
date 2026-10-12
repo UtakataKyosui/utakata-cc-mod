@@ -120,6 +120,15 @@ test("定義ファイルに model があるエージェントは判定しない"
   expect(w.spawned).toEqual([{ model: undefined }]);
 });
 
+test("作業ディレクトリが下位にあっても祖先の .claude/agents の定義を読む", async ($, on) => {
+  const w = world(on, {
+    reply: () => answer("refute", 0.9),
+    files: { "../../.claude/agents/role-verifier.md": "---\nname: role-verifier\nmodel: opus\neffort: xhigh\n---\n本文" },
+  });
+  await $.agent.spawn(spawnInput({ prompt: "反証して", description: "反証", subagentType: "role-verifier" }));
+  expect(w.calls.http).toBe(0);
+});
+
 test("プラグインのエージェントと組み込みの Explore は判定しない", async ($, on) => {
   const w = world(on, { reply: () => answer("review", 0.9) });
   await $.agent.spawn(spawnInput({ prompt: "探して", description: "探索", subagentType: "Explore" }));
@@ -129,6 +138,7 @@ test("プラグインのエージェントと組み込みの Explore は判定�
 
 test("定義ファイルの frontmatter から model と effort の有無を読む", () => {
   expect(readFrontmatter("---\nname: a\nmodel: sonnet\n---\n")).toEqual({ hasModel: true, hasEffort: false });
+  expect(readFrontmatter("---\r\nname: a\r\nmodel: sonnet\r\neffort: high\r\n---\r\n")).toEqual({ hasModel: true, hasEffort: true });
   expect(readFrontmatter("本文だけ")).toEqual({ hasModel: false, hasEffort: false });
 });
 

@@ -30,10 +30,21 @@ async function readOptional($: EngineInterface, path: string): Promise<string | 
   }
 }
 
+/** 作業ディレクトリがリポジトリの下位にあっても見つかるよう、祖先ディレクトリまで遡る段数。 */
+const PROJECT_AGENT_MAX_DEPTH = 8;
+
+async function projectAgentText($: EngineInterface, name: string): Promise<string | undefined> {
+  for (let depth = 0; depth < PROJECT_AGENT_MAX_DEPTH; depth++) {
+    const text = await readOptional($, `${"../".repeat(depth)}.claude/agents/${name}.md`);
+    if (text !== undefined) return text;
+  }
+  return undefined;
+}
+
 async function agentDefinition($: EngineInterface, name: string): Promise<Frontmatter | undefined> {
   const home = await $.env.get("HOME");
   const text =
-    (await readOptional($, `.claude/agents/${name}.md`)) ??
+    (await projectAgentText($, name)) ??
     (home ? await readOptional($, `${home}/.claude/agents/${name}.md`) : undefined);
   return text === undefined ? undefined : readFrontmatter(text);
 }
@@ -77,8 +88,8 @@ export function register(on: On, options: PluginOptions) {
   const settings = readSettings(options);
   /** 起動済みサブエージェントの id と、その turn.step に当てる effort。SendMessage で再開されたときも当てるため、完了しても消さない。 */
   const effortByAgent = new Map<string, Effort>();
-  /** agent.spawn の結果が返る前に最初の turn.step が来た場合に、description から引くための控え。 */
-  const pendingByDescription = new Map<string, Effort>();
+  /** agent.spawn の結果が返る前に最初の turn.step が来た場合に、description から引くための控え。同じ description の起動も 1 件ずつ別に持つ。 */
+  const pendingByDescription = new Map<string, { effort: Effort }[]>();
 
   on("agent.spawn", async ($, e, next) => {
     const kind = classifyAgentType(e.subagentType, e.fork === true);
@@ -94,13 +105,17 @@ export function register(on: On, options: PluginOptions) {
     showStatus($, statusLine(decision, scope, settings.mode));
     if (settings.mode === "observe") return next(e);
 
-    if (scope.effort) pendingByDescription.set(e.description, decision.spec.effort);
-    const result = await next(scope.model ? { ...e, model: decision.spec.model } : e);
-    if (scope.effort && result.agentId !== undefined) {
-      effortByAgent.set(result.agentId, decision.spec.effort);
-      pendingByDescription.delete(e.description);
+    const pending = { effort: decision.spec.effort };
+    if (scope.effort) pendingByDescription.set(e.description, [...(pendingByDescription.get(e.description) ?? []), pending]);
+    try {
+      const result = await next(scope.model ? { ...e, model: decision.spec.model } : e);
+      if (scope.effort && result.agentId !== undefined) effortByAgent.set(result.agentId, pending.effort);
+      return result;
+    } finally {
+      const rest = (pendingByDescription.get(e.description) ?? []).filter((p) => p !== pending);
+      if (rest.length === 0) pendingByDescription.delete(e.description);
+      else pendingByDescription.set(e.description, rest);
     }
-    return result;
   });
 
   on("turn.step", async function* ($, e, next) {
@@ -109,10 +124,12 @@ export function register(on: On, options: PluginOptions) {
     let effort = effortByAgent.get(agentId);
     if (effort === undefined && pendingByDescription.size > 0) {
       const agent = (await $.agent.list()).find((a) => a.id === agentId);
-      effort = agent ? pendingByDescription.get(agent.description) : undefined;
-      if (agent && effort !== undefined) {
+      const queue = agent ? pendingByDescription.get(agent.description) : undefined;
+      const claimed = queue?.shift();
+      if (agent && queue !== undefined && queue.length === 0) pendingByDescription.delete(agent.description);
+      if (agent && claimed !== undefined) {
+        effort = claimed.effort;
         effortByAgent.set(agentId, effort);
-        pendingByDescription.delete(agent.description);
       }
     }
     return yield* next(effort === undefined ? e : { ...e, effort });
