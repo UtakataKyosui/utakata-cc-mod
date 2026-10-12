@@ -89,6 +89,11 @@
       "name": "prompt-retrospective",
       "source": "./plugins/prompt-retrospective",
       "description": "Claude Code の会話ログから自分のプロンプトを集計し、小出し・指示語・肥大・誤送信の観点で振り返るレポートを書き出す"
+    },
+    {
+      "name": "session-guard",
+      "source": "./plugins/session-guard",
+      "description": "同じ作業ディレクトリで動く別の Claude Code セッションを検出し、git worktree や jj workspace への移行を促す"
     }
   ]
 }

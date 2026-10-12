@@ -34,6 +34,7 @@ Claude Modのフックを実行できるClaude Code環境が必要。
 | [harness-profile](plugins/harness-profile/README.md) | 開発ハーネス用の推奨プロファイル (minimal / standard / full / local-llm) を示し、/harness で必要な CLI・Notion 設定・ローカルLLM設定・ollama 接続の不足を診断する |
 | [stack-pr](plugins/stack-pr/README.md) | Issue の実装を頼まれたとき、変更範囲を見積もらせ、大規模なら gh stack の Stack PR に分割して進めさせる |
 | [prompt-retrospective](plugins/prompt-retrospective/README.md) | Claude Code の会話ログから自分のプロンプトを集計し、小出し・指示語・肥大・誤送信の観点で振り返るレポートを書き出す |
+| [session-guard](plugins/session-guard/README.md) | 同じ作業ディレクトリで動く別の Claude Code セッションを検出し、git worktree や jj workspace への移行を促す |
 
 ## 組み合わせ
 
