@@ -26,6 +26,32 @@
       "default": 7,
       "min": 1,
       "max": 365
+    },
+    "ollamaUrl": {
+      "type": "string",
+      "title": "Ollama の URL",
+      "description": "/retrospective improve が呼ぶローカル LLM のエンドポイント",
+      "default": "http://localhost:11434"
+    },
+    "ollamaTimeoutSec": {
+      "type": "number",
+      "title": "Ollama の応答待ち時間 (秒)",
+      "description": "Ollama への1回のリクエストを打ち切るまでの秒数",
+      "default": 120,
+      "min": 1,
+      "max": 1800
+    },
+    "draftModel": {
+      "type": "string",
+      "title": "改善案を書くモデル",
+      "description": "改善案の下書きを作る Ollama のモデル名",
+      "default": "gemma4:e4b"
+    },
+    "judgeModel": {
+      "type": "string",
+      "title": "採否を判断するモデル",
+      "description": "改善案の採用・修正・棄却を選ぶ Ollama のモデル名。選択肢の記号を1文字返すモデルを想定する",
+      "default": "tev1:4b"
     }
   }
 }

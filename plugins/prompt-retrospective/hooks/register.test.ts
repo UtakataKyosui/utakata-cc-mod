@@ -1,11 +1,26 @@
 import { test, expect } from 'claude-code/testing'
-import { analyze, expandHome, isDeictic, isFragment, isLarge, parseDays, parsePromptLine, readConfig, renderReport, reportFileName, resolveDir } from './policy'
+import { analyze, expandHome, isDeictic, isFragment, isLarge, isLoopbackUrl, parseDays, parsePromptLine, readConfig, renderReport, reportFileName, resolveDir } from './policy'
 
 const row = (content: unknown, extra: Record<string, unknown> = {}) =>
   JSON.stringify({ type: 'user', sessionId: 's1', timestamp: '2026-10-10T00:00:00.000Z', message: { role: 'user', content }, ...extra })
 
 test('設定の既定値と不正値の丸め', () => {
-  expect(readConfig({})).toEqual({ transcriptDir: '~/.claude/projects', reportDir: 'reports', days: 7 })
+  expect(readConfig({})).toEqual({
+    transcriptDir: '~/.claude/projects',
+    reportDir: 'reports',
+    days: 7,
+    ollamaUrl: 'http://localhost:11434',
+    ollamaTimeoutSec: 120,
+    draftModel: 'gemma4:e4b',
+    judgeModel: 'tev1:4b',
+  })
+  expect(readConfig({ ollamaUrl: 'http://h:1//' }).ollamaUrl).toBe('http://h:1')
+  expect(readConfig({ ollamaTimeoutSec: 0 }).ollamaTimeoutSec).toBe(120)
+  expect(isLoopbackUrl('http://localhost:11434')).toBe(true)
+  expect(isLoopbackUrl('http://127.0.0.1:11434/')).toBe(true)
+  expect(isLoopbackUrl('http://[::1]:11434')).toBe(true)
+  expect(isLoopbackUrl('http://192.168.0.5:11434')).toBe(false)
+  expect(isLoopbackUrl('http://localhost@evil.example:80')).toBe(false)
   expect(readConfig({ days: 0, reportDir: ' ' }).days).toBe(7)
   expect(parseDays('30', 7)).toBe(30)
   expect(parseDays('', 7)).toBe(7)
