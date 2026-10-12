@@ -96,6 +96,10 @@ test("計画を求める語は修正を求める語より優先する", () => {
   expect(verdictByKeywords("直す方針を計画して")).toBe("plan");
   expect(verdictByKeywords("PR のレビューコメントに対応して")).toBe("execute");
   expect(verdictByKeywords("通知をいい感じに")).toBe(undefined);
+  expect(verdictByKeywords("計画せずにこのエラーを直して")).toBe("execute");
+  expect(verdictByKeywords("don't plan; fix this")).toBe("execute");
+  expect(verdictByKeywords("設計は不要。ここを修正して")).toBe("execute");
+  expect(verdictByKeywords("計画せずに進めて")).toBe(undefined);
 });
 
 test("LocalJev の応答から判定を読み、想定外の選択肢は捨てる", () => {

@@ -10,6 +10,10 @@ export type Settings = {
 /** 利用者が計画を明示的に求めた語。含まれていれば判定せずに計画を許す。 */
 const PLAN_REQUESTED = /計画|設計|プラン|アーキテクチャ|方針を(決め|立て)|\bplan\b|\bdesign\b/i;
 
+/** 「計画せずに」「don't plan」のように計画を断っている言い回し。計画の依頼とは数えない。 */
+const PLAN_NEGATED =
+  /(計画|設計|プラン)(は|を)?(せず|しない|なしで|抜きで|不要|いらない|要らない)|\b(don'?t|do not|no|without|skip)\s+(a\s+)?(plan|planning|design)\b/gi;
+
 /** 修正や対応を求める語。含まれていれば判定せずに実行扱いにする。 */
 const EXECUTE_REQUESTED = /直して|修正して|対応して|\bfix\b/i;
 
@@ -17,7 +21,7 @@ const EXECUTE_REQUESTED = /直して|修正して|対応して|\bfix\b/i;
 const MAX_STATE_CHARS = 2000;
 
 export const DENY_MESSAGE =
-  "act-now-guard: この依頼は計画フェーズが要らない種類と判定した（rules/execution-vs-planning.md）。" +
+  "act-now-guard: この依頼は計画フェーズが要らない種類と判定した。" +
   "計画モードや Plan エージェントに入らず、そのまま実装に着手すること。" +
   "変更が 3 ファイルを超えて複数のサブシステムにまたがるなど、本当に計画が必要なら、その理由を添えて利用者に一言確認すること。";
 
@@ -38,8 +42,9 @@ export function isFromPerson(originKind: string): boolean {
 }
 
 export function verdictByKeywords(text: string): Verdict | undefined {
-  if (PLAN_REQUESTED.test(text)) return "plan";
-  if (EXECUTE_REQUESTED.test(text)) return "execute";
+  const requested = text.replace(PLAN_NEGATED, "");
+  if (PLAN_REQUESTED.test(requested)) return "plan";
+  if (EXECUTE_REQUESTED.test(requested)) return "execute";
   return undefined;
 }
 
