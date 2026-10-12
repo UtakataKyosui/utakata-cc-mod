@@ -1,0 +1,11 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "approval-guard",
+  "version": "0.2.0",
+  "description": "AskUserQuestion で得た承認と gh の不可逆コマンド（レビュー投稿・close・merge）の宛先を照合し、force push の確認と PR 本文の Closes キーワードの確認も行う function hook",
+  "author": {
+    "name": "UtakataKyosui"
+  },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT"
+}
