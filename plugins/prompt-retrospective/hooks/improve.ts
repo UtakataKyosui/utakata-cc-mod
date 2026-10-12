@@ -116,6 +116,7 @@ export const refine = async (llm: Llm, f: Finding): Promise<Proposal> => {
     const verdict = parseVerdict(await llm.judge(judgePrompt(f, rule)))
     if (verdict === 'adopt') return { finding: f, rule, status: 'adopted', rounds: round }
     if (verdict === 'discard') return { finding: f, rule, status: 'discarded', rounds: round }
+    if (verdict === undefined) return { finding: f, rule, status: 'needs-review', rounds: round }
     feedback = FEEDBACK
   }
   return { finding: f, rule, status: 'needs-review', rounds: MAX_ROUNDS }

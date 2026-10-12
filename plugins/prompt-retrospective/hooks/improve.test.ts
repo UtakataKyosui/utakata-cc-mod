@@ -49,6 +49,8 @@ test('採用・修正・棄却の流れ', async () => {
   expect((await refine(fake(['B', 'B']), f)).status).toBe('needs-review')
   expect((await refine(fake(['C']), f)).status).toBe('discarded')
   expect((await refine(fake(['???']), f)).status).toBe('needs-review')
+  const unreadable = await refine(fake(['???', 'A']), f)
+  expect([unreadable.status, unreadable.rounds]).toEqual(['needs-review', 1])
 })
 
 test('改善案のレポート', async () => {
