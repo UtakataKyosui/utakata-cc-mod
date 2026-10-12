@@ -91,6 +91,16 @@
       "description": "Claude Code の会話ログから自分のプロンプトを集計し、小出し・指示語・肥大・誤送信の観点で振り返るレポートを書き出す"
     },
     {
+      "name": "approval-guard",
+      "source": "./plugins/approval-guard",
+      "description": "AskUserQuestion で得た承認と、gh の不可逆コマンド（レビュー投稿・close・merge）の宛先を照合し、force push と PR 本文の Closes キーワードも確認する"
+    },
+    {
+      "name": "bash-hints",
+      "source": "./plugins/bash-hints",
+      "description": "Bash の呼び出しに専用ツールへの誘導・rust-parallel・mise exec・pueue デーモンのヒントを足し、長い sleep を止める"
+    },
+    {
       "name": "session-guard",
       "source": "./plugins/session-guard",
       "description": "同じ作業ディレクトリで動く別の Claude Code セッションを検出し、git worktree や jj workspace への移行を促す"
