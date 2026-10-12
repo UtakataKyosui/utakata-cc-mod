@@ -1,0 +1,35 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "agent-router",
+  "version": "0.2.0",
+  "description": "サブエージェントと Workflow の agent() の依頼を LocalJev でロールに分類し、agent-routing の roles.json に従って model と effort を切り替える function hook",
+  "author": {
+    "name": "UtakataKyosui"
+  },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "動作モード",
+      "description": "apply は model と effort を書き換える。observe は判定結果をステータスに出すだけで書き換えない",
+      "options": [
+        "apply",
+        "observe"
+      ],
+      "default": "apply"
+    },
+    "endpoint": {
+      "type": "string",
+      "title": "LocalJev の URL",
+      "description": "POST /v1/systemone を受け付ける Jev 互換 API のベース URL",
+      "default": "http://127.0.0.1:8080"
+    },
+    "confidenceThreshold": {
+      "type": "number",
+      "title": "採用する確信度の下限",
+      "description": "ロール判定の confidence がこれ未満なら書き換えずに通す",
+      "default": 0.5
+    }
+  }
+}

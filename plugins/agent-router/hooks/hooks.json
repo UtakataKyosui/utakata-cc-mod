@@ -1,0 +1,4 @@
+{
+  "description": "サブエージェントと Workflow の agent() の起動時にロールを判定し、model と effort を roles.json の値に切り替える",
+  "modules": ["./register.ts"]
+}
