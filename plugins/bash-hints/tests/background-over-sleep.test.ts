@@ -32,3 +32,18 @@ test("sleep chained after other commands is still detected", () => {
 test("no sleep at all is silent", () => {
   expect(sleepDenyReason("git status")).toBeNull();
 });
+
+test("a short sleep does not hide a later long sleep", () => {
+  expect(sleepDenyReason("sleep 1 && sleep 300")).not.toBeNull();
+  expect(sleepDenyReason("sleep 1 && sleep 2")).toBeNull();
+});
+
+test("sleep in a comment is not a real sleep call", () => {
+  expect(sleepDenyReason("echo done # sleep 30")).toBeNull();
+  expect(sleepDenyReason("echo ${#x}; sleep 30")).not.toBeNull();
+});
+
+test("sleep inside a heredoc body is not a real sleep call", () => {
+  expect(sleepDenyReason("cat > run.sh <<'EOF'\nsleep 30\nEOF")).toBeNull();
+  expect(sleepDenyReason("cat <<EOF\nhi\nEOF\nsleep 30")).not.toBeNull();
+});
