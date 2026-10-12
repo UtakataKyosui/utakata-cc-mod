@@ -27,7 +27,7 @@ Claude Code の会話ログ (`~/.claude/projects/**/*.jsonl`) から自分が送
 
 ## ローカル LLM による改善案
 
-`/retrospective improve` は、上の分析に続けて、ローカルの Ollama に改善案を作らせる。プロンプトは外部へ送らない。
+`/retrospective improve` は、上の分析に続けて、ローカルの Ollama に改善案を作らせる。既定の `ollamaUrl` はこの端末の中を指すため、プロンプトは外部へ送らない。`ollamaUrl` を別のホストにすると抜粋がそのホストへ送られ、改善案のレポートにもその旨を書く。
 
 ```text
 分析の候補 → 下書き (draftModel) → 採否の判断 (judgeModel) → レポート
@@ -38,7 +38,7 @@ Claude Code の会話ログ (`~/.claude/projects/**/*.jsonl`) から自分が送
 - 判断モデルは、採用 (A)・修正が必要 (B)・棄却 (C) のいずれかを1文字で返す。2回続けて採用されなかった案と、判断が読み取れなかった案は「人の確認が必要」に回す。
 - 結果は `YYYY-MM-DD-prompt-improvements.md` に書く。`CLAUDE.md` などへは自動で反映しない。
 
-既定のモデルは `gemma4:e4b`（下書き）と `tev1:4b`（判断）。`ollamaUrl`、`draftModel`、`judgeModel` で変えられる。Ollama に繋がらないときは、機械集計のレポートだけを書いてその旨を返す。
+既定のモデルは `gemma4:e4b`（下書き）と `tev1:4b`（判断）。`ollamaUrl`、`draftModel`、`judgeModel` で変えられる。1回のリクエストは `ollamaTimeoutSec`（既定120秒）で打ち切る。Ollama に繋がらない・応答がないときは、機械集計のレポートだけを書いてその旨を返す。
 
 ## 制約
 

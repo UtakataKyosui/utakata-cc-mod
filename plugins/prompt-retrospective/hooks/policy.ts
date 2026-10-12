@@ -1,4 +1,4 @@
-export type Config = { transcriptDir: string; reportDir: string; days: number; ollamaUrl: string; draftModel: string; judgeModel: string }
+export type Config = { transcriptDir: string; reportDir: string; days: number; ollamaUrl: string; ollamaTimeoutSec: number; draftModel: string; judgeModel: string }
 
 export type Prompt = { sessionId: string; at: number; text: string }
 
@@ -12,9 +12,17 @@ export const readConfig = (options: Record<string, unknown> | undefined): Config
   reportDir: str(options?.reportDir, 'reports'),
   days: num(options?.days, 7, 1, 365),
   ollamaUrl: str(options?.ollamaUrl, 'http://localhost:11434').replace(/\/+$/, ''),
+  ollamaTimeoutSec: num(options?.ollamaTimeoutSec, 120, 1, 1800),
   draftModel: str(options?.draftModel, 'gemma4:e4b'),
   judgeModel: str(options?.judgeModel, 'tev1:4b'),
 })
+
+/** URL のホストが、この端末の外へ出ないループバックか。 */
+export const isLoopbackUrl = (url: string): boolean => {
+  const m = /^[a-z][a-z0-9+.-]*:\/\/(?:[^/@]*@)?(\[[^\]]*\]|[^/:?#]*)/i.exec(url)
+  const host = (m?.[1] ?? '').toLowerCase()
+  return host === 'localhost' || host === '[::1]' || /^127(\.\d{1,3}){3}$/.test(host)
+}
 
 export const parseDays = (args: unknown, fallback: number): number => {
   const m = /^\s*(\d+)\s*$/.exec(typeof args === 'string' ? args : '')

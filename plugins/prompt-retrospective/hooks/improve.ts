@@ -1,4 +1,4 @@
-import { DRIP_PROMPTS, LARGE_CHARS } from './policy'
+import { DRIP_PROMPTS, isLoopbackUrl, LARGE_CHARS } from './policy'
 import type { Analysis, Prompt } from './policy'
 
 export type Verdict = 'adopt' | 'revise' | 'discard'
@@ -132,7 +132,7 @@ export const improvementFileName = (now: number): string => `${new Date(now).toI
 const section = (title: string, ps: Proposal[]): string[] =>
   ps.length === 0 ? [] : [`## ${title}`, '', ...ps.flatMap(p => [`### ${p.finding.title}`, '', p.rule, ''])]
 
-export const renderImprovements = (proposals: Proposal[], models: { draft: string; judge: string }): string => {
+export const renderImprovements = (proposals: Proposal[], models: { draft: string; judge: string }, endpoint: string): string => {
   const adopted = proposals.filter(p => p.status === 'adopted')
   const review = proposals.filter(p => p.status === 'needs-review')
   const discarded = proposals.filter(p => p.status === 'discarded')
@@ -144,7 +144,7 @@ export const renderImprovements = (proposals: Proposal[], models: { draft: strin
   return [
     '# プロンプトの改善案',
     '',
-    `下書きは ${models.draft}、採否の判断は ${models.judge} が担当した。ローカルで処理しており、外部には送っていない。`,
+    `下書きは ${models.draft}、採否の判断は ${models.judge} が担当した。${isLoopbackUrl(endpoint) ? 'ローカルで処理しており、外部には送っていない。' : `プロンプトの抜粋を ${endpoint} に送って処理した。`}`,
     '採用された案も自動では反映していない。内容を確認して、CLAUDE.md などへ手で移す。',
     '',
     ...(body.length > 0 ? body : ['改善案を作る対象がなかった。', '']),

@@ -28,11 +28,17 @@ async function collect($: any, dir: string, days: number): Promise<Prompt[]> {
 }
 
 const ask = async ($: any, cfg: Config, model: string, prompt: string): Promise<string> => {
-  const res = await $.http.fetch(`${cfg.ollamaUrl}/api/generate`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ model, prompt, stream: false, think: false, options: { temperature: 0.3 } }),
+  const timedOut = $.clock.sleep(cfg.ollamaTimeoutSec * 1000).then(() => {
+    throw new Error(`Ollama が ${cfg.ollamaTimeoutSec} 秒以内に応答しなかった (${model})`)
   })
+  const res = await Promise.race([
+    $.http.fetch(`${cfg.ollamaUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model, prompt, stream: false, think: false, options: { temperature: 0.3 } }),
+    }),
+    timedOut,
+  ])
   if (!res.ok) throw new Error(`Ollama が ${res.status} を返した (${model})`)
   return String(JSON.parse(res.text).response ?? '')
 }
@@ -67,7 +73,7 @@ export const register: Register = (on, options) => {
       try {
         const proposals = await improve(localLlm($, cfg), analysis)
         const improvePath = `${dir}/${improvementFileName(now)}`
-        await $.fs.write(improvePath, renderImprovements(proposals, { draft: cfg.draftModel, judge: cfg.judgeModel }))
+        await $.fs.write(improvePath, renderImprovements(proposals, { draft: cfg.draftModel, judge: cfg.judgeModel }, cfg.ollamaUrl))
         return { text: `${summaryText(analysis, path)}\n${improveSummary(proposals, improvePath)}` }
       } catch (err) {
         return { text: `${summaryText(analysis, path)}\nローカル LLM での改善案づくりに失敗した: ${err instanceof Error ? err.message : String(err)}` }

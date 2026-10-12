@@ -33,6 +33,14 @@
       "description": "/retrospective improve が呼ぶローカル LLM のエンドポイント",
       "default": "http://localhost:11434"
     },
+    "ollamaTimeoutSec": {
+      "type": "number",
+      "title": "Ollama の応答待ち時間 (秒)",
+      "description": "Ollama への1回のリクエストを打ち切るまでの秒数",
+      "default": 120,
+      "min": 1,
+      "max": 1800
+    },
     "draftModel": {
       "type": "string",
       "title": "改善案を書くモデル",
