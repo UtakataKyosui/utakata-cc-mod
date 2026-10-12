@@ -6,7 +6,7 @@ const DAY_MS = 86_400_000
 
 async function collect($: any, dir: string, days: number): Promise<Prompt[]> {
   const found = await $.process.run(['find', dir, '-name', '*.jsonl', '-not', '-path', '*/subagents/*', '-mtime', `-${days + 1}`], { timeoutMs: 60_000 })
-  if (found.exitCode !== 0 && String(found.stdout).trim() === '') throw new Error(`会話ログのディレクトリを読めなかった: ${dir} (${String(found.stderr).trim() || `exit ${found.exitCode}`})`)
+  if (found.exitCode !== 0 || found.isStdoutTruncated) throw new Error(`会話ログのディレクトリを読めなかった: ${dir} (${String(found.stderr).trim() || (found.isStdoutTruncated ? '一覧が長すぎる' : `exit ${found.exitCode}`)})`)
   const files = String(found.stdout)
     .split('\n')
     .filter(f => f !== '')
@@ -17,6 +17,7 @@ async function collect($: any, dir: string, days: number): Promise<Prompt[]> {
       .run(['sh', '-c', `grep -h '"type":"user"' "$1" | grep -v '"type":"tool_result"'`, 'sh', file], { timeoutMs: 60_000 })
       .catch(() => undefined)
     if (!r) continue
+    if (r.isStdoutTruncated) throw new Error(`会話ログが大きすぎて途中で切れた: ${file}`)
     for (const line of String(r.stdout).split('\n')) {
       const p = line === '' ? undefined : parsePromptLine(line)
       if (p) prompts.push(p)
