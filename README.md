@@ -54,7 +54,6 @@ Claude Modのフックを実行できるClaude Code環境が必要。
 次の組み合わせは助言や書き換えが競合するため、どちらか一方だけ入れる。
 
 - advanced-rust-cli と bash-hints: cat・grep・findに対する助言が逆になる（Rust製CLI、または専用ツール）。
-
 - subagent-router と agent-router: どちらもSubAgentのmodelとeffortを書き換える。
 
 各プラグインを併用するだけで、タスクや検証結果がすべて自動同期するわけではない。連携方法と制御範囲は個別READMEを参照。
