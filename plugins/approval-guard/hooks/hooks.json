@@ -1,0 +1,4 @@
+{
+  "description": "レビュー投稿・close・merge の宛先を、直前の承認と突き合わせてから通す",
+  "modules": ["./register.ts"]
+}

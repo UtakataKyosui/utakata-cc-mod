@@ -34,6 +34,7 @@ Claude Modのフックを実行できるClaude Code環境が必要。
 | [harness-profile](plugins/harness-profile/README.md) | 開発ハーネス用の推奨プロファイル (minimal / standard / full / local-llm) を示し、/harness で必要な CLI・Notion 設定・ローカルLLM設定・ollama 接続の不足を診断する |
 | [stack-pr](plugins/stack-pr/README.md) | Issue の実装を頼まれたとき、変更範囲を見積もらせ、大規模なら gh stack の Stack PR に分割して進めさせる |
 | [prompt-retrospective](plugins/prompt-retrospective/README.md) | Claude Code の会話ログから自分のプロンプトを集計し、小出し・指示語・肥大・誤送信の観点で振り返るレポートを書き出す |
+| [approval-guard](plugins/approval-guard/README.md) | AskUserQuestion で得た承認と、gh の不可逆コマンド（レビュー投稿・close・merge）の宛先を照合し、force push と PR 本文の Closes キーワードも確認する |
 | [bash-hints](plugins/bash-hints/README.md) | Bash の呼び出しに専用ツールへの誘導・rust-parallel・mise exec・pueue デーモンのヒントを足し、長い sleep を止める |
 
 ## 組み合わせ
@@ -45,6 +46,7 @@ Claude Modのフックを実行できるClaude Code環境が必要。
 - 品質確認: verification-gateで検証コマンドを実行し、その結果をchange-reviewへの依頼に含める。
 - 調査と知識: code-finder、ctxpack-fetch、source-citation、notion-knowledgeを使い、trust-boundaryで対象の送信と操作を検査する。
 - 並列実装: workspace-isolationで作業領域と統合を管理する。
+- 操作の安全: approval-guardで不可逆操作の宛先を確かめる。
 
 次の組み合わせは助言や書き換えが競合するため、どちらか一方だけ入れる。
 
