@@ -89,6 +89,11 @@
       "name": "prompt-retrospective",
       "source": "./plugins/prompt-retrospective",
       "description": "Claude Code の会話ログから自分のプロンプトを集計し、小出し・指示語・肥大・誤送信の観点で振り返るレポートを書き出す"
+    },
+    {
+      "name": "bash-hints",
+      "source": "./plugins/bash-hints",
+      "description": "Bash の呼び出しに専用ツールへの誘導・rust-parallel・mise exec・pueue デーモンのヒントを足し、長い sleep を止める"
     }
   ]
 }
