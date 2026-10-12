@@ -1,0 +1,29 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "act-now-guard",
+  "version": "0.1.1",
+  "description": "計画フェーズの要らない依頼で EnterPlanMode や Plan エージェントに入ろうとしたら止め、すぐ実装に着手させる function hook",
+  "author": {
+    "name": "UtakataKyosui"
+  },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "動作モード",
+      "description": "apply は計画フェーズへの入口を止める。observe は判定結果をステータスに出すだけで止めない",
+      "options": [
+        "apply",
+        "observe"
+      ],
+      "default": "apply"
+    },
+    "endpoint": {
+      "type": "string",
+      "title": "LocalJev の URL",
+      "description": "POST /v1/systemone を受け付ける Jev 互換 API のベース URL",
+      "default": "http://127.0.0.1:8080"
+    }
+  }
+}

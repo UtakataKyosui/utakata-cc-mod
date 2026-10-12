@@ -104,6 +104,11 @@
       "name": "session-guard",
       "source": "./plugins/session-guard",
       "description": "同じ作業ディレクトリで動く別の Claude Code セッションを検出し、git worktree や jj workspace への移行を促す"
+    },
+    {
+      "name": "act-now-guard",
+      "source": "./plugins/act-now-guard",
+      "description": "計画フェーズの要らない依頼で EnterPlanMode や Plan エージェントに入ろうとしたら止め、すぐ実装に着手させる（判定は LocalJev）"
     }
   ]
 }

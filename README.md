@@ -37,6 +37,7 @@ Claude Modのフックを実行できるClaude Code環境が必要。
 | [approval-guard](plugins/approval-guard/README.md) | AskUserQuestion で得た承認と、gh の不可逆コマンド（レビュー投稿・close・merge）の宛先を照合し、force push と PR 本文の Closes キーワードも確認する |
 | [bash-hints](plugins/bash-hints/README.md) | Bash の呼び出しに専用ツールへの誘導・rust-parallel・mise exec・pueue デーモンのヒントを足し、長い sleep を止める |
 | [session-guard](plugins/session-guard/README.md) | 同じ作業ディレクトリで動く別の Claude Code セッションを検出し、git worktree や jj workspace への移行を促す |
+| [act-now-guard](plugins/act-now-guard/README.md) | 計画フェーズの要らない依頼で EnterPlanMode や Plan エージェントに入ろうとしたら止め、すぐ実装に着手させる（判定は LocalJev） |
 
 ## 組み合わせ
 
