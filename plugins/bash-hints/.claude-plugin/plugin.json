@@ -1,0 +1,11 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "bash-hints",
+  "version": "0.1.1",
+  "description": "Bash の呼び出しに専用ツールへの誘導・rust-parallel・mise exec・pueue デーモンのヒントを足し、長い sleep を止める function hook",
+  "author": {
+    "name": "UtakataKyosui"
+  },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT"
+}
