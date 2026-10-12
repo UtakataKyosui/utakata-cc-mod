@@ -109,6 +109,11 @@
       "name": "act-now-guard",
       "source": "./plugins/act-now-guard",
       "description": "計画フェーズの要らない依頼で EnterPlanMode や Plan エージェントに入ろうとしたら止め、すぐ実装に着手させる（判定は LocalJev）"
+    },
+    {
+      "name": "agent-router",
+      "source": "./plugins/agent-router",
+      "description": "サブエージェントと Workflow の agent() の依頼を LocalJev でロールに分類し、roles.json に従って model と effort を切り替える"
     }
   ]
 }

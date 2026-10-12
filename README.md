@@ -38,6 +38,7 @@ Claude Modのフックを実行できるClaude Code環境が必要。
 | [bash-hints](plugins/bash-hints/README.md) | Bash の呼び出しに専用ツールへの誘導・rust-parallel・mise exec・pueue デーモンのヒントを足し、長い sleep を止める |
 | [session-guard](plugins/session-guard/README.md) | 同じ作業ディレクトリで動く別の Claude Code セッションを検出し、git worktree や jj workspace への移行を促す |
 | [act-now-guard](plugins/act-now-guard/README.md) | 計画フェーズの要らない依頼で EnterPlanMode や Plan エージェントに入ろうとしたら止め、すぐ実装に着手させる（判定は LocalJev） |
+| [agent-router](plugins/agent-router/README.md) | サブエージェントと Workflow の agent() の依頼を LocalJev でロールに分類し、roles.json に従って model と effort を切り替える |
 
 ## 組み合わせ
 
@@ -53,6 +54,7 @@ Claude Modのフックを実行できるClaude Code環境が必要。
 次の組み合わせは助言や書き換えが競合するため、どちらか一方だけ入れる。
 
 - advanced-rust-cli と bash-hints: cat・grep・findに対する助言が逆になる（Rust製CLI、または専用ツール）。
+- subagent-router と agent-router: どちらもSubAgentのmodelとeffortを書き換える。
 
 各プラグインを併用するだけで、タスクや検証結果がすべて自動同期するわけではない。連携方法と制御範囲は個別READMEを参照。
 
