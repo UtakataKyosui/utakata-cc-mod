@@ -1,0 +1,4 @@
+{
+  "description": "Bash の呼び出しに専用ツールへの誘導・rust-parallel・mise exec・pueue デーモンのヒントを足し、長い sleep を止める function hook",
+  "modules": ["./register.ts"]
+}
