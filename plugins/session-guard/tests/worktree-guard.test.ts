@@ -8,6 +8,7 @@ import {
   lsofCwd,
   parsePs,
   selfPsPid,
+  SHARED_WORKTREE_MESSAGE,
   vcsMessage,
 } from "../hooks/worktree-guard";
 
@@ -83,4 +84,9 @@ test("lsof cwd and vcs message follow the shell hook", () => {
   expect(vcsMessage(true, true)).toContain("jj リポジトリ");
   expect(vcsMessage(false, true)).toContain("Git リポジトリ");
   expect(vcsMessage(false, false)).toContain("手動でディレクトリを分離");
+});
+
+test("the shared worktree message asks to move to another worktree", () => {
+  expect(SHARED_WORKTREE_MESSAGE).toContain("共有");
+  expect(SHARED_WORKTREE_MESSAGE).toContain("EnterWorktree");
 });

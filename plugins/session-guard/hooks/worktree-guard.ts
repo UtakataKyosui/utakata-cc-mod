@@ -55,6 +55,9 @@ export const vcsMessage = (hasJj: boolean, hasGit: boolean): string =>
       ? "Git リポジトリが検出されました。EnterWorktree ツールで Git Worktree に移行してください。"
       : "EnterWorktree ツールまたは手動でディレクトリを分離してください。";
 
+export const SHARED_WORKTREE_MESSAGE =
+  "この worktree（workspace）を別のセッションと共有しています。EnterWorktree ツールで別の worktree に移行してください。";
+
 export const worktreeGuardContext = (
   count: number,
   cwd: string,

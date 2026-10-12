@@ -8,6 +8,7 @@ import {
   lsofCwd,
   parsePs,
   selfPsPid,
+  SHARED_WORKTREE_MESSAGE,
   vcsMessage,
   worktreeGuardContext,
 } from "./worktree-guard";
@@ -19,14 +20,15 @@ export function register(on: On) {
     const stat = await $.fs.stat(e.cwd, { resolve: true }).catch(() => null);
     const cwd = stat?.realPath ?? e.cwd;
 
-    // 既に worktree 内、または default 以外の jj workspace なら分離済み
-    if (isInClaudeWorktree(cwd)) return next(e);
+    // worktree 内や default 以外の jj workspace は元の checkout からは分離済みだが、
+    // 同じ場所を別のセッションが使っていれば競合するため、同居の確認は続ける
+    let isolated = isInClaudeWorktree(cwd);
     // 元スクリプトの -d と同じく、ディレクトリのときだけ jj / git のリポジトリとみなす
     const hasJj = await $.fs
       .stat(`${cwd}/.jj`)
       .then((s) => s.kind === "dir")
       .catch(() => false);
-    if (hasJj) {
+    if (hasJj && !isolated) {
       const ws = await $.process
         .run(["jj", "workspace", "list"], { cwd, timeoutMs: 3000 })
         .catch(() => null);
@@ -34,7 +36,7 @@ export function register(on: On) {
         ws !== null && ws.exitCode === 0
           ? currentJjWorkspace(ws.stdout)
           : "default:";
-      if (current !== "default:") return next(e);
+      isolated = current !== "default:";
     }
 
     const ps = await $.process
@@ -74,7 +76,11 @@ export function register(on: On) {
       ...result,
       additionalContext: [
         ...(result.additionalContext ?? []),
-        worktreeGuardContext(count, cwd, vcsMessage(hasJj, hasGit)),
+        worktreeGuardContext(
+          count,
+          cwd,
+          isolated ? SHARED_WORKTREE_MESSAGE : vcsMessage(hasJj, hasGit),
+        ),
       ],
     };
   });

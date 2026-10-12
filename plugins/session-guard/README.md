@@ -25,6 +25,7 @@
 - 自セッションは、`sh -c 'echo $$; exec ps -eo pid,ppid,args'` で走らせた `ps` の親から祖先をたどって除外する。元のシェルがフックの祖先をすべて除外していたのと同じ。`exec` しても PID は変わらないため、先頭行の PID で自分の `ps` を特定する（コマンド文字列で探すと、同時に起動した別セッションの `ps` と取り違えうる）
 - 今の `jj workspace list` は `(current)` を出さない。元のシェルは `pipefail` で `default:` に落ちていたため、`.jj` があれば判定に進む。この Mod も同じにしている
 - `.jj` と `.git` は、元の `-d` と同じくディレクトリのときだけ数える。`.git` がファイルの worktree では汎用のメッセージになる
+- worktree 内（や default 以外の jj workspace）でも、同じ cwd で別のセッションが動いていれば文脈を足す。その場合の案内は「別の worktree へ移行する」になる
 - worktree 内の判定は、元の `grep '/.claude/worktrees/'` と同じく `.` を任意の 1 文字として扱う
 - 対象にするのは、`claude` で始まるか `/claude` の直後が空白か行末のプロセスだけ。`node /x/claude/server.js` のようなサブプロセスは数えない
 
