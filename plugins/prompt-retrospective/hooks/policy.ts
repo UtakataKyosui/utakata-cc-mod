@@ -63,7 +63,7 @@ export const isFragment = (text: string): boolean => !text.startsWith('/') && [.
 /** 短く、対象を指す語 (パス・URL・番号) を含まない指示語プロンプト。 */
 export const isDeictic = (text: string): boolean => !text.startsWith('/') && [...text].length <= 30 && DEICTIC.test(text) && !TARGET.test(text)
 
-export const isLarge = (text: string): boolean => text.length >= LARGE_CHARS
+export const isLarge = (text: string): boolean => [...text].length >= LARGE_CHARS
 
 export type Analysis = {
   from: number

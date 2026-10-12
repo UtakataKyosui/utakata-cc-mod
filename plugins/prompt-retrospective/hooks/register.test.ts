@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { analyze, expandHome, isDeictic, isFragment, parseDays, parsePromptLine, readConfig, renderReport, reportFileName, resolveDir } from './policy'
+import { analyze, expandHome, isDeictic, isFragment, isLarge, parseDays, parsePromptLine, readConfig, renderReport, reportFileName, resolveDir } from './policy'
 
 const row = (content: unknown, extra: Record<string, unknown> = {}) =>
   JSON.stringify({ type: 'user', sessionId: 's1', timestamp: '2026-10-10T00:00:00.000Z', message: { role: 'user', content }, ...extra })
@@ -57,6 +57,8 @@ test('期間内のプロンプトを集計してレポートにする', () => {
   expect(md).toContain('# プロンプト分析（2026-10-09〜2026-10-11）')
   expect(md).toContain('### 要件の小出し')
   expect(md).toContain('「それを記録して」')
+  expect(isLarge('😀'.repeat(10_000))).toBe(false)
+  expect(isLarge('😀'.repeat(20_000))).toBe(true)
   expect(reportFileName(at)).toBe('2026-10-10-prompt-analysis.md')
   expect(renderReport(analyze([], 0, 1))).toContain('該当するプロンプトはなかった')
 })

@@ -6,6 +6,7 @@ const DAY_MS = 86_400_000
 
 async function collect($: any, dir: string, days: number): Promise<Prompt[]> {
   const found = await $.process.run(['find', dir, '-name', '*.jsonl', '-not', '-path', '*/subagents/*', '-mtime', `-${days + 1}`], { timeoutMs: 60_000 })
+  if (found.exitCode !== 0 && String(found.stdout).trim() === '') throw new Error(`会話ログのディレクトリを読めなかった: ${dir} (${String(found.stderr).trim() || `exit ${found.exitCode}`})`)
   const files = String(found.stdout)
     .split('\n')
     .filter(f => f !== '')
