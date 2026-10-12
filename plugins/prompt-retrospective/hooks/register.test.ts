@@ -5,7 +5,15 @@ const row = (content: unknown, extra: Record<string, unknown> = {}) =>
   JSON.stringify({ type: 'user', sessionId: 's1', timestamp: '2026-10-10T00:00:00.000Z', message: { role: 'user', content }, ...extra })
 
 test('設定の既定値と不正値の丸め', () => {
-  expect(readConfig({})).toEqual({ transcriptDir: '~/.claude/projects', reportDir: 'reports', days: 7 })
+  expect(readConfig({})).toEqual({
+    transcriptDir: '~/.claude/projects',
+    reportDir: 'reports',
+    days: 7,
+    ollamaUrl: 'http://localhost:11434',
+    draftModel: 'gemma4:e4b',
+    judgeModel: 'tev1:4b',
+  })
+  expect(readConfig({ ollamaUrl: 'http://h:1//' }).ollamaUrl).toBe('http://h:1')
   expect(readConfig({ days: 0, reportDir: ' ' }).days).toBe(7)
   expect(parseDays('30', 7)).toBe(30)
   expect(parseDays('', 7)).toBe(7)

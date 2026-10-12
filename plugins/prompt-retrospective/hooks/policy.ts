@@ -1,4 +1,4 @@
-export type Config = { transcriptDir: string; reportDir: string; days: number }
+export type Config = { transcriptDir: string; reportDir: string; days: number; ollamaUrl: string; draftModel: string; judgeModel: string }
 
 export type Prompt = { sessionId: string; at: number; text: string }
 
@@ -11,6 +11,9 @@ export const readConfig = (options: Record<string, unknown> | undefined): Config
   transcriptDir: str(options?.transcriptDir, '~/.claude/projects'),
   reportDir: str(options?.reportDir, 'reports'),
   days: num(options?.days, 7, 1, 365),
+  ollamaUrl: str(options?.ollamaUrl, 'http://localhost:11434').replace(/\/+$/, ''),
+  draftModel: str(options?.draftModel, 'gemma4:e4b'),
+  judgeModel: str(options?.judgeModel, 'tev1:4b'),
 })
 
 export const parseDays = (args: unknown, fallback: number): number => {
@@ -193,6 +196,7 @@ export const summaryText = (a: Analysis, path: string): string =>
   ].join('\n')
 
 export const HELP = [
-  '/retrospective [日数]  会話ログのプロンプトを分析し、レポートを書き出す',
-  '/retrospective help    この説明を表示する',
+  '/retrospective [日数]          会話ログのプロンプトを分析し、レポートを書き出す',
+  '/retrospective improve [日数]  分析に加えて、ローカル LLM に改善案を作らせる',
+  '/retrospective help            この説明を表示する',
 ].join('\n')
