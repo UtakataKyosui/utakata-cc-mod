@@ -1,5 +1,4 @@
-// dotclaude の hooks/confirm-force-push.sh と hooks/check-pr-closes-issue.sh を移したもの。
-// 元のシェルは grep で行ごとに判定するため、\s の代わりに改行を含まない空白 [^\S\n] を使う。
+// 行ごとに判定するため、\s の代わりに改行を含まない空白 [^\S\n] を使う。
 
 const FORCE_PUSH =
   /git[^\S\n]+push\b.*([^\S\n]-f\b|[^\S\n]--force\b|[^\S\n]--force-with-lease\b|[^\S\n]--force-if-includes\b)/;
