@@ -1,0 +1,6 @@
+{
+  "description": "同じ作業ディレクトリで動く別の Claude Code セッションを検出し、workspace への移行を促す function hook",
+  "modules": [
+    "./register.ts"
+  ]
+}
