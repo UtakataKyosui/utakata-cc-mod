@@ -14,7 +14,7 @@ Bash の呼び出しに、専用ツールへの誘導・rust-parallel・mise exe
 
 ## 置き換える command hook
 
-dotclaude の `hooks/` にあったシェルスクリプトを移したもの。すべて `classic.PreToolUse`（Bash）で受け、dotclaude の `settings.json` にあった順に並べている。
+すべて `classic.PreToolUse`（Bash）で受ける。
 
 | command hook | 実装 | 挙動 |
 | --- | --- | --- |
@@ -43,8 +43,6 @@ dotclaude の `hooks/` にあったシェルスクリプトを移したもの。
 claude plugin validate plugins/bash-hints
 claude plugin test plugins/bash-hints
 ```
-
-`tests/rust-parallel.test.ts` は dotclaude の `hooks/tests/suggest-rust-parallel.test.sh` を 1 件ずつ移したもの。
 
 `classic.PreToolUse` はテストキットでは発火しない（テスト側が `tool.call` を答える下で起こるため）。フックの登録まで確かめるときは、`claude -p --setting-sources project --plugin-dir plugins/bash-hints` で実際に走らせる。
 
