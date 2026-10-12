@@ -89,6 +89,11 @@
       "name": "prompt-retrospective",
       "source": "./plugins/prompt-retrospective",
       "description": "Claude Code の会話ログから自分のプロンプトを集計し、小出し・指示語・肥大・誤送信の観点で振り返るレポートを書き出す"
+    },
+    {
+      "name": "approval-guard",
+      "source": "./plugins/approval-guard",
+      "description": "AskUserQuestion で得た承認と、gh の不可逆コマンド（レビュー投稿・close・merge）の宛先を照合し、force push と PR 本文の Closes キーワードも確認する"
     }
   ]
 }
