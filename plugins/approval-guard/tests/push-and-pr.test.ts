@@ -1,7 +1,7 @@
 import type { On } from "claude-code";
 import { test, expect } from "claude-code/testing";
 
-import { bodyFileOf, isForcePush, mentionsIssue } from "../hooks/push-and-pr";
+import { bodyFileOf, bodyScopeOf, isForcePush, mentionsIssue } from "../hooks/push-and-pr";
 
 const BASH = "Bash";
 
@@ -22,6 +22,26 @@ test("force push の判定は元のシェルと同じく行をまたがない", 
   expect(isForcePush("git push x\n-f")).toBe(false);
   expect(isForcePush("git\npush --force")).toBe(false);
   expect(isForcePush("echo start\ngit push --force origin x")).toBe(true);
+});
+
+test("サブコマンドの前にグローバルオプションがあっても force push を見分ける", () => {
+  expect(isForcePush("git -C other-repo push --force origin main")).toBe(true);
+  expect(isForcePush("git --git-dir=x/.git push -f")).toBe(true);
+  expect(isForcePush("git -c user.name=a push --force-with-lease")).toBe(true);
+  expect(isForcePush("git -C other-repo push origin main")).toBe(false);
+});
+
+test("force push の判定は && などの後ろのフラグを拾わない", () => {
+  expect(isForcePush("git push origin main && rm -f x")).toBe(false);
+  expect(isForcePush("git push origin main; ls -f")).toBe(false);
+  expect(isForcePush("git fetch && git push --force")).toBe(true);
+});
+
+test("Issue 参照を探す範囲は --body 以降で、--title は含めない", () => {
+  expect(mentionsIssue(bodyScopeOf('gh pr create --title "Fixes #12" --body "説明"'))).toBe(false);
+  expect(mentionsIssue(bodyScopeOf('gh pr create --body "説明" --title "Fixes #12"'))).toBe(false);
+  expect(mentionsIssue(bodyScopeOf('gh pr create --title t --body "Fixes #12"'))).toBe(true);
+  expect(mentionsIssue(bodyScopeOf('gh pr create -t t -b "Closes #12"'))).toBe(true);
 });
 
 test("Closes キーワードと Issue 対応でない旨の注記を行単位で見分ける", () => {
@@ -72,4 +92,13 @@ test("読めない --body-file は誤検出を避けて通す", async ($, on) =>
     command: "gh pr create --title t --body-file /nonexistent/body.md",
   });
   expect(r.deny).toBe(undefined);
+});
+
+test("タイトルにだけ Closes キーワードがある PR 作成は拒否される", async ($, on) => {
+  bashSucceeds(on);
+  const r = await $.tool.call({
+    tool: BASH,
+    command: 'gh pr create --title "Fixes #12" --body "説明だけ"',
+  });
+  expect(r.deny).toContain("Issue close キーワードがありません");
 });

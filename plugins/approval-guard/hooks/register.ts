@@ -2,6 +2,7 @@ import type { On } from "claude-code";
 
 import {
   bodyFileOf,
+  bodyScopeOf,
   FORCE_PUSH_REASON,
   isForcePush,
   MISSING_CLOSE_KEYWORD,
@@ -22,13 +23,42 @@ const CLOSE_REUSE_MS = 180_000;
 const PR_NUMBER = /#(\d{1,6})/g;
 
 /** matcher。不可逆操作を含みうる Bash コマンドだけをフックへ入れる。 */
-const IRREVERSIBLE =
-  /gh (pr|issue) (review|close|merge)|\/pulls\/\d+\/(reviews|merge)|--method (PUT|PATCH) .*\/(pulls|issues)\/\d+/;
+const IRREVERSIBLE = /gh (pr|issue) (review|close|merge)|gh api\b.*\/(pulls|issues)\/\d+/;
 
-const API_CLOSE =
-  /gh api .*--method (PUT|PATCH) .*\/(pulls|issues)\/\d+(\/merge)?( |$|"|')/;
+const API_METHOD = /(?:--method|-X)(?:[ =])?(PUT|PATCH)\b/;
+
+const API_CLOSE_PATH = /\/(pulls|issues)\/(\d+)(\/merge)?(?=[\s"']|$)/;
+
+const REVIEW_APPROVE = /(?:^|\s)(?:--approve|-a)(?=[\s=]|$)/;
+
+const REVIEW_REQUEST_CHANGES = /(?:^|\s)(?:--request-changes|-r)(?=[\s=]|$)/;
 
 type Target = { kind: Kind; number: string | undefined; label: string };
+
+/** クォートの外にある `&&` `||` `;` `|` `&` と改行でコマンドを区切る。 */
+function segmentsOf(command: string): string[] {
+  const out: string[] = [];
+  let current = "";
+  let quote: string | undefined;
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]!;
+    if (quote !== undefined) {
+      current += c;
+      if (c === "\\" && quote === '"') current += command[++i] ?? "";
+      else if (c === quote) quote = undefined;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+      current += c;
+    } else if (c === ";" || c === "|" || c === "&" || c === "\n") {
+      out.push(current);
+      current = "";
+    } else {
+      current += c;
+    }
+  }
+  out.push(current);
+  return out.map((s) => s.trim()).filter((s) => s !== "");
+}
 
 /** `gh pr review --approve 1234` のように、サブコマンド以降の位置引数から番号を拾う。 */
 function positionalNumber(command: string, sub: RegExp): string | undefined {
@@ -36,38 +66,49 @@ function positionalNumber(command: string, sub: RegExp): string | undefined {
   return seg.match(/(?:^|\s)#?(\d{1,6})(?=\s|$)/)?.[1];
 }
 
-function irreversibleTarget(command: string): Target | undefined {
+function segmentTarget(command: string): Target | undefined {
   if (/\s(--help|-h)(\s|$)/.test(command)) return undefined;
   // create / edit は --body に "gh pr merge" のような文字列を含みうる
   if (/gh (issue|pr) (create|edit)/.test(command)) return undefined;
 
+  const apiPath = /gh api\b/.test(command)
+    ? command.match(API_CLOSE_PATH)
+    : null;
   const review =
     /gh pr review/.test(command) &&
-    /(--approve|--request-changes)/.test(command);
+    (REVIEW_APPROVE.test(command) || REVIEW_REQUEST_CHANGES.test(command));
   const reviewApi =
     /gh api .*\/pulls\/\d+\/reviews/.test(command) &&
     /(APPROVE|REQUEST_CHANGES)/.test(command);
   const closing =
     /gh (issue close|pr close|pr merge)/.test(command) ||
-    API_CLOSE.test(command);
+    (apiPath !== null && API_METHOD.test(command));
 
   if (review || reviewApi) {
-    const label = /(--approve|APPROVE)/.test(command)
-      ? "Approve"
-      : "Request Changes";
+    const label =
+      REVIEW_APPROVE.test(command) || /APPROVE/.test(command)
+        ? "Approve"
+        : "Request Changes";
     const number =
       command.match(/\/pulls\/(\d+)/)?.[1] ??
-      positionalNumber(command, /gh pr review\b([^|;&]*)/);
+      positionalNumber(command, /gh pr review\b(.*)/);
     return { kind: "review", number, label };
   }
   if (closing) {
     const number =
-      command.match(/\/(pulls|issues)\/(\d+)/)?.[2] ??
-      positionalNumber(command, /gh (?:issue close|pr close|pr merge)\b([^|;&]*)/);
+      apiPath?.[2] ??
+      positionalNumber(command, /gh (?:issue close|pr close|pr merge)\b(.*)/);
     const label = /merge/.test(command) ? "merge" : "close";
     return { kind: "close", number, label };
   }
   return undefined;
+}
+
+/** チェーンされたコマンドに含まれる不可逆操作を、すべて列挙する。 */
+function irreversibleTargets(command: string): Target[] {
+  return segmentsOf(command)
+    .map(segmentTarget)
+    .filter((t): t is Target => t !== undefined);
 }
 
 function numbersIn(text: string): string[] {
@@ -150,34 +191,41 @@ export function register(on: On) {
   }).catch(($, e, next) => next(e)); // 記録に失敗しても質問自体は壊さない
 
   on("tool.call", { tool: "Bash", command: IRREVERSIBLE }, async ($, e, next) => {
-    const target = irreversibleTarget(
+    const targets = irreversibleTargets(
       String((e as Record<string, unknown>).command ?? ""),
     );
-    if (target === undefined) return next(e);
+    if (targets.length === 0) return next(e);
 
-    if (target.number === undefined) {
-      return {
-        deny: `${target.label} の宛先（PR/Issue 番号）を明示していない。カレントブランチ依存の実行は宛先の取り違えを検出できない`,
-      };
-    }
-    if (!approval || !approval.kinds.has(target.kind)) {
-      return {
-        deny: `#${target.number} への ${target.label} の前に、AskUserQuestion で宛先と判定を明示して承認を取ること`,
-      };
-    }
-    if (!approval.prs.includes(target.number)) {
-      return {
-        deny: `承認されたのは #${approval.prs.join(" #")} で、このコマンドの宛先は #${target.number}`,
-      };
+    // チェーンされた操作は、すべての宛先が承認と一致したときだけ通す
+    for (const target of targets) {
+      if (target.number === undefined) {
+        return {
+          deny: `${target.label} の宛先（PR/Issue 番号）を明示していない。カレントブランチ依存の実行は宛先の取り違えを検出できない`,
+        };
+      }
+      if (!approval || !approval.kinds.has(target.kind)) {
+        return {
+          deny: `#${target.number} への ${target.label} の前に、AskUserQuestion で宛先と判定を明示して承認を取ること`,
+        };
+      }
+      if (!approval.prs.includes(target.number)) {
+        return {
+          deny: `承認されたのは #${approval.prs.join(" #")} で、このコマンドの宛先は #${target.number}`,
+        };
+      }
+      if (
+        target.kind === "close" &&
+        (await $.clock.now()) - approval.at > CLOSE_REUSE_MS
+      ) {
+        approval = undefined;
+        return {
+          deny: `#${target.number} への ${target.label} の承認が古い。改めて AskUserQuestion で確認すること`,
+        };
+      }
     }
 
-    if (target.kind === "review") {
+    if (targets.some((t) => t.kind === "review")) {
       approval = undefined; // レビュー投稿の承認は 1 回で使い切る
-    } else if ((await $.clock.now()) - approval.at > CLOSE_REUSE_MS) {
-      approval = undefined;
-      return {
-        deny: `#${target.number} への ${target.label} の承認が古い。改めて AskUserQuestion で確認すること`,
-      };
     }
     return next(e);
   }).catch(() => ({ deny: "宛先照合フックが落ちたので不可逆操作を止めた" }));
@@ -210,7 +258,7 @@ export function register(on: On) {
       if (body === undefined) return next(e);
       if (mentionsIssue(body)) return next(e);
     }
-    if (mentionsIssue(command)) return next(e);
+    if (mentionsIssue(bodyScopeOf(command))) return next(e);
 
     return { deny: MISSING_CLOSE_KEYWORD };
   });

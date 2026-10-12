@@ -245,3 +245,50 @@ test("不可逆でないコマンドは素通りする", async ($, on) => {
   const r = await $.tool.call({ tool: BASH, command: "echo hi" });
   expect(r.deny).toBe(undefined);
 });
+
+test("チェーンされた複数の不可逆操作は、すべての宛先が承認と一致しなければ拒否される", async ($, on) => {
+  answerWith(on, "はい");
+  world(on);
+  await $.tool.call(question("#42 を merge しますか？"));
+  const r = await $.tool.call({
+    tool: BASH,
+    command: "gh pr merge 42 --squash && gh pr merge 43 --squash",
+  });
+  expect(r.deny).toContain("#43");
+  const ok = await $.tool.call({
+    tool: BASH,
+    command: "gh pr merge 42 --squash && echo done",
+  });
+  expect(ok.deny).toBe(undefined);
+});
+
+test("クォート内の区切り文字ではコマンドを分けない", async ($, on) => {
+  answerWith(on, "はい");
+  world(on);
+  await $.tool.call(question("#42 を merge しますか？"));
+  const r = await $.tool.call({
+    tool: BASH,
+    command: 'gh pr merge 42 --subject "a && gh pr merge 43"',
+  });
+  expect(r.deny).toBe(undefined);
+});
+
+test("レビューの短いフラグも宛先を照合する", async ($, on) => {
+  bashSucceeds(on);
+  for (const command of ["gh pr review 1234 -a", "gh pr review -r 1234"]) {
+    const r = await $.tool.call({ tool: BASH, command });
+    expect(r.deny).toBeDefined();
+  }
+});
+
+test("gh api の -X も宛先を照合する", async ($, on) => {
+  bashSucceeds(on);
+  for (const command of [
+    "gh api -X PATCH /repos/o/r/issues/42 -f state=closed",
+    "gh api repos/o/r/pulls/42/merge -X PUT",
+    "gh api --method=PATCH /repos/o/r/issues/42 -f state=closed",
+  ]) {
+    const r = await $.tool.call({ tool: BASH, command });
+    expect(r.deny).toBeDefined();
+  }
+});
