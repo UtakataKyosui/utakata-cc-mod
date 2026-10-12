@@ -1,0 +1,31 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "prompt-retrospective",
+  "version": "0.1.0",
+  "description": "Claude Code の会話ログから自分が送ったプロンプトを集計し、曖昧さ・小出し・肥大化・誤送信の観点で振り返るレポートを書き出すMod",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "transcriptDir": {
+      "type": "string",
+      "title": "会話ログのディレクトリ",
+      "description": "分析する Claude Code の会話ログ (*.jsonl) を探すディレクトリ。先頭の ~ はホームに展開する",
+      "default": "~/.claude/projects"
+    },
+    "reportDir": {
+      "type": "string",
+      "title": "レポートの保存先",
+      "description": "セッションのルートからの相対パス、または絶対パス。YYYY-MM-DD-prompt-analysis.md を書く",
+      "default": "reports"
+    },
+    "days": {
+      "type": "number",
+      "title": "分析する期間 (日)",
+      "description": "/retrospective に日数を渡さないときに遡る日数",
+      "default": 7,
+      "min": 1,
+      "max": 365
+    }
+  }
+}

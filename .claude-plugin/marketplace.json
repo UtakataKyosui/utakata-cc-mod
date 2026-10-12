@@ -84,6 +84,11 @@
       "name": "harness-profile",
       "source": "./plugins/harness-profile",
       "description": "開発ハーネス用の推奨プロファイル (minimal / standard / full) を示し、/harness で必要な CLI・Notion 設定・ollama 接続の不足を診断する"
+    },
+    {
+      "name": "prompt-retrospective",
+      "source": "./plugins/prompt-retrospective",
+      "description": "Claude Code の会話ログから自分のプロンプトを集計し、小出し・指示語・肥大・誤送信の観点で振り返るレポートを書き出す"
     }
   ]
 }
