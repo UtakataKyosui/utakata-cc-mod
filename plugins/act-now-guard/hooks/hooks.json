@@ -1,0 +1,4 @@
+{
+  "description": "計画フェーズの要らない依頼で、EnterPlanMode と Plan エージェントの起動を止める",
+  "modules": ["./register.ts"]
+}
