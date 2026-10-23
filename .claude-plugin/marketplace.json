@@ -114,6 +114,11 @@
       "name": "agent-router",
       "source": "./plugins/agent-router",
       "description": "サブエージェントと Workflow の agent() の依頼を LocalJev でロールに分類し、roles.json に従って model と effort を切り替える"
+    },
+    {
+      "name": "ghq-pane",
+      "source": "./plugins/ghq-pane",
+      "description": "ghq で管理しているリポジトリと git worktree を Pane に一覧表示する"
     }
   ]
 }
