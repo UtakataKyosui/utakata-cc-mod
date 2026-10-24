@@ -29,12 +29,20 @@ function parseWorktrees(out: string): Omit<Worktree, 'dirty'>[] {
     })
 }
 
+let generation = 0
+
+function repoName(path: string, roots: string[]) {
+  const root = roots.find(r => path.startsWith(`${r}/`))
+  return root ? path.slice(root.length + 1) : path
+}
+
 async function load($: EngineInterface) {
+  const current = ++generation
   await update($, snapshot, s => ({ ...s, isLoading: true }))
   try {
     const listed = await $.process.run(['ghq', 'list', '-p'])
     if (listed.exitCode !== 0) throw new Error(listed.stderr.trim() || 'ghq list failed')
-    const root = (await $.process.run(['ghq', 'root'])).stdout.trim()
+    const roots = (await $.process.run(['ghq', 'root', '--all'])).stdout.split('\n').filter(Boolean)
     const paths = listed.stdout.split('\n').filter(Boolean)
     const repos: Repo[] = await Promise.all(
       paths.map(async path => {
@@ -46,11 +54,13 @@ async function load($: EngineInterface) {
             return { ...w, dirty: st.stdout.split('\n').filter(Boolean).length }
           }),
         )
-        return { name: path.slice(root.length + 1), path, worktrees }
+        return { name: repoName(path, roots), path, worktrees }
       }),
     )
+    if (current !== generation) return
     await update($, snapshot, () => ({ repos, error: '', isLoading: false }))
   } catch (err) {
+    if (current !== generation) return
     await update($, snapshot, s => ({ ...s, error: String(err), isLoading: false }))
   }
 }
