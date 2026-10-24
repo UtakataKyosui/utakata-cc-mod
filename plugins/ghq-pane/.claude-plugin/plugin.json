@@ -1,0 +1,10 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "ghq-pane",
+  "version": "0.1.0",
+  "description": "ghq で管理しているリポジトリと git worktree を Pane に一覧表示するMod",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
