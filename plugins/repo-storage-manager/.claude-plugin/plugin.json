@@ -1,0 +1,11 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "repo-storage-manager",
+  "version": "0.1.0",
+  "description": "ローカルのGitリポジトリと生成物の容量・活動状況・保全リスクを読み取り専用で解析するMod",
+  "author": {
+    "name": "UtakataKyosui"
+  },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT"
+}

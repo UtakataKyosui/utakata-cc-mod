@@ -40,6 +40,7 @@ Claude Modのフックを実行できるClaude Code環境が必要。
 | [session-guard](plugins/session-guard/README.md) | 同じ作業ディレクトリで動く別の Claude Code セッションを検出し、git worktree や jj workspace への移行を促す |
 | [act-now-guard](plugins/act-now-guard/README.md) | 計画フェーズの要らない依頼で EnterPlanMode や Plan エージェントに入ろうとしたら止め、すぐ実装に着手させる（判定は LocalJev） |
 | [agent-router](plugins/agent-router/README.md) | サブエージェントと Workflow の agent() の依頼を LocalJev でロールに分類し、roles.json に従って model と effort を切り替える |
+| [repo-storage-manager](plugins/repo-storage-manager/README.md) | ローカルのGitリポジトリの容量・最終コミット・保全リスク・生成物候補を読み取り専用で解析し、整理・退避の計画 (Dry Run) を作る。/repo-storage で実行 |
 
 ## 組み合わせ
 
