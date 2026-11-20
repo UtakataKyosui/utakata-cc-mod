@@ -66,6 +66,7 @@ const world = (on: any, init: Record<string, any> = {}) => {
         const sub = a[3]
         const rest = a.slice(4)
         if (sub === 'rev-parse') {
+          if (rest.includes('--show-superproject-working-tree')) return out(st.superproject ?? '')
           if (rest.includes('--show-toplevel')) return out(`${st.top[path] ?? path}\n`)
           if (rest.includes('HEAD')) return out(`${path.includes('.rsm-rehearsal') ? st.cloneHead : st.head}\n`)
           return out(`false\n${path}/.git\n${path}/.git\n`)

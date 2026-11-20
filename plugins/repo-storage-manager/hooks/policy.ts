@@ -137,7 +137,7 @@ export const classifyCache = (
 
 export type Category = 'PROTECTED' | 'DIRTY' | 'UNKNOWN' | 'CANDIDATE'
 export type Reason =
-  | 'CURRENT_DIR' | 'LINKED_WORKTREE' | 'EXTRA_WORKTREE' | 'ACTIVE_WORKTREE' | 'BARE_REPO' | 'SUBMODULE'
+  | 'CURRENT_DIR' | 'SUBMODULE_CHECKOUT' | 'LINKED_WORKTREE' | 'EXTRA_WORKTREE' | 'ACTIVE_WORKTREE' | 'BARE_REPO' | 'SUBMODULE'
   | 'UNCOMMITTED' | 'UNTRACKED' | 'UNPUSHED' | 'NO_UPSTREAM' | 'STASH' | 'DETACHED_HEAD'
   | 'GIT_FAILED' | 'NO_COMMITS' | 'REMOTE_UNVERIFIED' | 'STALE' | 'RECENT' | 'SIGNAL_CONFLICT'
 
@@ -151,6 +151,8 @@ export type Observation = {
   /** git-dir が common-dir と異なる = 別リポジトリの linked worktree */
   linkedWorktree: boolean
   hasSubmodules: boolean
+  /** 別のリポジトリ (superproject) の submodule として checkout されている */
+  isSubmoduleCheckout?: boolean
   extraWorktrees: number
   status: GitStatus | undefined
   branches: LocalBranches | undefined
@@ -196,6 +198,7 @@ export const classify = (o: Observation, nowEpoch: number, staleDays: number): V
   if (o.bare) protectedR.push('BARE_REPO')
   if (o.linkedWorktree) protectedR.push('LINKED_WORKTREE')
   if (o.hasSubmodules) protectedR.push('SUBMODULE')
+  if (o.isSubmoduleCheckout) protectedR.push('SUBMODULE_CHECKOUT')
   if (o.extraWorktrees > 0) protectedR.push('EXTRA_WORKTREE')
   if (protectedR.length > 0) return { category: 'PROTECTED', reasons: protectedR }
 

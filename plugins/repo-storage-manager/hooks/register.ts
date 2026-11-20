@@ -71,7 +71,7 @@ async function cachesOf(run: Run, path: string): Promise<CacheDir[]> {
 
 async function analyze(run: Run, path: string, source: 'ghq' | 'scan-root', cwd: string, all: string[], cfg: Config, gdu: boolean, now: number, signal?: Signal): Promise<RepoReport> {
   const git = (...a: string[]) => run(['git', '-C', path, ...a])
-  const [wt, st, br, stash, log, sub, bare, reflog] = await Promise.all([
+  const [wt, st, br, stash, log, sub, bare, reflog, superproject] = await Promise.all([
     git('worktree', 'list', '--porcelain'),
     git('status', '--porcelain=v2', '--branch', '--untracked-files=normal'),
     git('for-each-ref', '--format=%(refname:short)%09%(upstream:short)%09%(upstream:track)', 'refs/heads'),
@@ -80,6 +80,7 @@ async function analyze(run: Run, path: string, source: 'ghq' | 'scan-root', cwd:
     git('ls-files', '--', '.gitmodules'),
     git('rev-parse', '--path-format=absolute', '--is-bare-repository', '--git-dir', '--git-common-dir'),
     git(...REFLOG_ARGS),
+    git('rev-parse', '--show-superproject-working-tree'),
   ])
   const rp = bare.stdout.trim().split('\n')
   const worktrees = wt.exitCode === 0 ? parseWorktrees(wt.stdout) : []
@@ -87,10 +88,12 @@ async function analyze(run: Run, path: string, source: 'ghq' | 'scan-root', cwd:
     path,
     currentDir: cwd === path || cwd.startsWith(`${path}/`),
     activeWorktree: false,
-    failed: [wt, st, br, stash, bare, sub].some(r => r.exitCode !== 0) || rp.length < 3,
+    failed: [wt, st, br, stash, bare, sub, superproject].some(r => r.exitCode !== 0) || rp.length < 3,
     bare: rp[0] === 'true',
     linkedWorktree: rp[1] !== undefined && rp[2] !== undefined && rp[1] !== rp[2],
     hasSubmodules: sub.stdout.trim() !== '',
+    // .gitmodules は superproject 側にあり、submodule 自身では見えない。親の有無は専用のコマンドで調べる (失敗は観測失敗)
+    isSubmoduleCheckout: superproject.exitCode === 0 && superproject.stdout.trim() !== '',
     extraWorktrees: Math.max(0, worktrees.length - 1),
     status: st.exitCode === 0 ? parseStatus(st.stdout) : undefined,
     branches: br.exitCode === 0 ? parseBranches(br.stdout) : undefined,
