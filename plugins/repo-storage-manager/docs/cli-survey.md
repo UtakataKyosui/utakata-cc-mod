@@ -5,7 +5,7 @@
 | ツール | 使えるもの (README 記載) | 採否 | 理由と方針 |
 |---|---|---|---|
 | git | porcelain v2 の status、`worktree list --porcelain`、`for-each-ref`、`stash list`、`log` | **採用 (必須)** | 一次確認。最終判定はこのプラグインのポリシー |
-| ghq | `ghq list -p`、`ghq root --all` (ghq-pane が使用) | **採用 (任意)** | 無ければ `scanRoots`。縮退を報告 |
+| ghq | `ghq list -p`、`ghq root --all` (ghq-pane が使用) | **採用 (任意)** | 無ければ `scan_roots`。縮退を報告 |
 | gdu | `-n -p -o -` の ncdu 互換 JSON、`-x` (別マウントを跨がない)、`--output-attrs`。ディレクトリ合計は新しい版で `gdu_asize` / `gdu_dsize`、古い版で `asize` / `dsize`。読めないディレクトリは `read_error: true` | **採用 (任意)** | 使用量と見かけサイズ。新旧形式を区別して二重計上を防ぐ (`parseNcdu`)。無ければ `du -sk -x` |
 | reposcan | `-r ROOT`、`-f`、`--stale-days`、`-o json`、`--json-output-path`。git と jj を扱う。MIT ではなくライセンスは未確認 | **保留** | JSON のフィールド一覧が README に無く、契約を確認できない。**匿名の利用統計 (mixpanel) を既定で送るため、使うなら必ず `--no-telemetry`**。単体判定では削除可にしない参考信号に限る |
 | gst | `gst list` / `--short` は人向けの出力のみ。`rm` `update` `fetch` `new` を持つ | **不採用** | 機械可読な出力が無い。`rm` / `update` / `fetch` は書き込みを伴うため、呼び出し面積に含めない。活動日時は `git log -1` で取る |

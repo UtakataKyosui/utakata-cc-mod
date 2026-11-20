@@ -18,10 +18,10 @@ async function discover(run: Run, cfg: Config, degraded: string[]): Promise<{ pa
     const r = await run(['ghq', 'list', '-p'])
     if (r.exitCode === 0) r.stdout.split('\n').filter(Boolean).forEach(path => found.push({ path, source: 'ghq' }))
     else degraded.push(`ghq list に失敗: ${sanitize(r.stderr.trim()).slice(0, 200)}`)
-  } else degraded.push('ghq 未導入: scanRoots のみを探索')
+  } else degraded.push('ghq 未導入: scan_roots のみを探索')
   for (const root of cfg.scanRoots) {
     const r = await run(['find', root, '-maxdepth', String(cfg.maxDepth + 1), '-name', '.git', '-prune', '-print0'])
-    if (r.exitCode !== 0) { degraded.push(`scanRoot を探索できない: ${sanitize(root)}`); continue }
+    if (r.exitCode !== 0) { degraded.push(`scan_roots を探索できない: ${sanitize(root)}`); continue }
     r.stdout.split('\0').filter(Boolean).forEach(g => found.push({ path: g.replace(/\/\.git$/, ''), source: 'scan-root' }))
   }
   const unique = new Set(dedupePaths(found.map(f => f.path)))
@@ -112,8 +112,7 @@ export async function scan($: any, cfg: Config): Promise<Report> {
   }
 }
 
-export const register: Register = (on, options) => {
-  const cfg = readConfig(options)
+export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     await $.tool.register({
@@ -123,6 +122,11 @@ export const register: Register = (on, options) => {
       inputSchema: {
         type: 'object',
         properties: {
+          scan_roots: { type: 'array', items: { type: 'string' }, description: 'ghq の管理外で探索する絶対パス。ghq が無いときの代替にもなる' },
+          max_depth: { type: 'number', description: 'scan_roots 配下で .git を探す深さ (1〜8、既定 3)' },
+          max_repos: { type: 'number', description: '解析するリポジトリ数の上限 (1〜2000、既定 200)' },
+          stale_days: { type: 'number', description: '古いとみなす日数 (既定 180)。候補抽出の条件にすぎず、削除してよい条件ではない' },
+          top_n: { type: 'number', description: 'レポートに載せる件数 (1〜200、既定 20)' },
           sort: { type: 'string', enum: ['size', 'activity', 'risk'], description: '並び順 (既定 size)' },
           format: { type: 'string', enum: ['text', 'json'], description: '出力形式 (既定 text)' },
           category: { type: 'string', enum: ['PROTECTED', 'DIRTY', 'UNKNOWN', 'CANDIDATE'], description: '分類で絞り込む' },
@@ -138,10 +142,14 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', { tool: TOOL }, async ($, e) => {
-    const input = e as unknown as ReportOptions & { format?: 'text' | 'json' }
+    const input = e as unknown as ReportOptions & { format?: 'text' | 'json'; scan_roots?: unknown; max_depth?: unknown; max_repos?: unknown; stale_days?: unknown; top_n?: unknown }
+    const cfg = readConfig({ scanRoots: input.scan_roots, maxDepth: input.max_depth, maxRepos: input.max_repos, staleDays: input.stale_days, topN: input.top_n })
     const report = filterReport(await scan($, cfg), input)
     return { result: input.format === 'json' ? JSON.stringify(report) : formatReport(report, cfg.topN, input.sort ?? 'size') }
   })
 
-  on('command.run', { command: 'repo-storage' }, async $ => ({ text: formatReport(await scan($, cfg), cfg.topN) }))
+  on('command.run', { command: 'repo-storage' }, async $ => {
+    const cfg = readConfig(undefined)
+    return { text: formatReport(await scan($, cfg), cfg.topN) }
+  })
 }

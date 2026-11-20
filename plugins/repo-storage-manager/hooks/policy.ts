@@ -7,8 +7,10 @@ const clamp = (v: unknown, def: number, min: number, max: number): number => {
   return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.trunc(n))) : def
 }
 
+/** ツール引数を検証して Config にする。範囲外は丸め、絶対パスでない scanRoots は捨てる。 */
 export const readConfig = (o: Record<string, unknown> | undefined): Config => ({
-  scanRoots: String(o?.scanRoots ?? '').split(',').map(s => s.trim()).filter(s => s.startsWith('/')),
+  scanRoots: (Array.isArray(o?.scanRoots) ? o.scanRoots : String(o?.scanRoots ?? '').split(','))
+    .map(s => String(s).trim()).filter(s => s.startsWith('/') && !s.includes('\0')),
   maxDepth: clamp(o?.maxDepth, 3, 1, 8),
   maxRepos: clamp(o?.maxRepos, 200, 1, 2000),
   staleDays: clamp(o?.staleDays, 180, 1, 3650),

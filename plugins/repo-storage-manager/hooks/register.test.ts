@@ -47,6 +47,8 @@ test('サイズの解析: ncdu JSON と du、壊れた入力は undefined', () =
 
 test('設定・ネスト・無害化・報告', () => {
   expect(readConfig({ scanRoots: '/a, rel, /b', maxDepth: 99 })).toMatchObject({ scanRoots: ['/a', '/b'], maxDepth: 8, staleDays: 180 })
+  expect(readConfig({ scanRoots: ['/x', 'rel', '/y\0z', 5] }).scanRoots).toEqual(['/x'])
+  expect(readConfig({ staleDays: 'abc', topN: 0 })).toMatchObject({ staleDays: 180, topN: 1 })
   expect(parentOf('/r/a/sub', ['/r/a', '/r/a/sub', '/r/b'])).toBe('/r/a')
   expect(sanitize('a\x1b[31mb\x07c')).toBe('ab?c')
   const text = formatReport({
