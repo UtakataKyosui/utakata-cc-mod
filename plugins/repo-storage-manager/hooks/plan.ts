@@ -98,7 +98,8 @@ export const planOne = (r: RepoReport, op: Operation, dest: Destination | undefi
     const bundle = `${dest.path}/${name}.bundle`
     base.steps = [
       ['(dry-run) git', '-C', r.path, 'bundle', 'create', bundle, '--all'],
-      ['(dry-run) 追加で保全するもの: stash・hooks・.git/config・未追跡ファイルの一覧を manifest に記録'],
+      ['(dry-run) tar', '-cf', `${dest.path}/${name}.extras.tar`, '-C', `${r.path}/.git`, 'config hooks info (存在するもの。bundle に含まれない)'],
+      ['(dry-run) relocate は gitignore 済みのデータ (.env など、再生成できる生成物を除く) が残っていれば実行時に拒否する'],
     ]
     base.restoreRehearsal = [
       `git bundle verify ${bundle}`,
@@ -109,7 +110,7 @@ export const planOne = (r: RepoReport, op: Operation, dest: Destination | undefi
     base.manifest = {
       schema: 'repo-preservation-manifest-draft-1', source: r.path,
       note: op === 'relocate' ? '退避後の元の削除は別操作・別承認' : 'アーカイブの作成のみ。元は残る',
-      contents: ['git bundle (--all)', 'stash の一覧', 'hooks / .git/config', '未追跡ファイルの一覧'],
+      contents: ['git bundle (--all)', 'extras tar (.git の config / hooks / info)', 'manifest (sha256・ref 一覧)'],
       hashes: 'sha256 を作成時に記録する (未計算)',
     }
   }

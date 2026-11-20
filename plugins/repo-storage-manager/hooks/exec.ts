@@ -46,7 +46,7 @@ export type Journal = {
   repo: string
   status: 'staged' | 'purged' | 'restored' | 'failed'
   entries: { name: string; from: string; to: string }[]
-  archive?: { bundle: string; manifest: string; sha256: string }
+  archive?: { bundle: string; manifest: string; sha256: string; extras?: string; extrasSha256?: string }
   measuredBytes?: number
   note?: string
   createdAt: string
@@ -107,3 +107,22 @@ export const claudePids = (ps: string): number[] =>
 export const cwdFromLsof = (out: string): string | undefined => out.split('\n').find(l => l.startsWith('n'))?.slice(1)
 
 export const within = (dir: string, root: string): boolean => dir === trimSlash(root) || dir.startsWith(`${trimSlash(root)}/`)
+
+type Q = { question?: unknown; header?: unknown }
+
+/**
+ * 質問ごとに、その質問自身への回答で承認されたものだけを取り出す。
+ * 複数の質問の回答を混ぜない (別の質問への「はい」で、拒否した操作が承認されない)。
+ * 回答と質問を対応づけられないものは承認しない。
+ */
+export const approvedQuestionText = (questions: Q[], answers: Record<string, unknown> | undefined): string => {
+  const values = Object.values(answers ?? {})
+  const approved: string[] = []
+  for (const q of questions) {
+    const text = String(q?.question ?? '')
+    if (idsIn(text).length === 0) continue
+    const own = answers?.[text] ?? (typeof q?.header === 'string' ? answers?.[q.header] : undefined) ?? (questions.length === 1 && values.length === 1 ? values[0] : undefined)
+    if (own !== undefined && isAffirmative(String(own))) approved.push(text)
+  }
+  return approved.join('\n')
+}

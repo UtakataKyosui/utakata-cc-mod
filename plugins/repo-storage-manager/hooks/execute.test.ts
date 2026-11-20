@@ -13,7 +13,7 @@ type Kind = 'dir' | 'file' | 'link'
 const world = (on: any, init: Record<string, any> = {}) => {
   const clock = mock.clock(on, { now: 1_000_000 })
   const kinds = new Map<string, Kind>(Object.entries({
-    '/w': 'dir', '/w/old': 'dir', '/w/old/node_modules': 'dir', '/w/old/package.json': 'file', '/backup': 'dir',
+    '/w': 'dir', '/w/old': 'dir', '/w/old/node_modules': 'dir', '/w/old/package.json': 'file', '/w/old/.git': 'dir', '/w/old/.git/config': 'file', '/w/old/.git/hooks': 'dir', '/backup': 'dir',
     ...(init.kinds ?? {}),
   }) as [string, Kind][])
   const text: Record<string, string> = {}
@@ -58,7 +58,8 @@ const world = (on: any, init: Record<string, any> = {}) => {
       }
       case 'ps': return st.psFail ? out('', 1) : out(st.claude.map((c: any) => `${c.pid} claude`).join('\n') + '\n')
       case 'lsof': return out(`p${a[2]}\nfcwd\nn${st.claude.find((c: any) => String(c.pid) === a[2])?.cwd}\n`)
-      case 'sha256sum': return out(`${st.sha}  ${a[2]}\n`)
+      case 'sha256sum': return out(`${st.shaMap?.[a[2]!] ?? st.sha}  ${a[2]}\n`)
+      case 'tar': kinds.set(a[2]!, 'file'); return out()
       case 'git': {
         if (a[1] === 'clone') { kinds.set(a[6]!, 'dir'); return out() }
         const sub = a[3]
@@ -73,7 +74,7 @@ const world = (on: any, init: Record<string, any> = {}) => {
         if (sub === 'for-each-ref') return rest.some(x => x.includes('upstream')) ? out('main\to/m\t\n') : out(path.includes('.rsm-rehearsal') ? st.cloneRefs : st.refs)
         if (sub === 'stash') return out('')
         if (sub === 'log') return out('1500000000\n')
-        if (sub === 'ls-files') return out(st.tracked)
+        if (sub === 'ls-files') return out(rest.includes('--others') ? (st.ignored ?? 'node_modules/\n') : st.tracked)
         if (sub === 'bundle' && rest[0] === 'create') { kinds.set(rest[1]!, 'file'); return out() }
         return out()
       }
@@ -99,7 +100,7 @@ const assertSafe = (calls: string[][]) => {
     if (a[0] === 'rm') {
       expect(a.some(x => /^-[a-zA-Z]*f/.test(x))).toBe(false)
       expect(a).toContain('--')
-      expect(a[a.length - 1]).toMatch(/\.rsm-(trash|rehearsal)-[0-9a-f-]+$|\.bundle$|\.manifest\.json$/)
+      expect(a[a.length - 1]).toMatch(/\.rsm-(trash|rehearsal)-[0-9a-f-]+$|\.bundle$|\.manifest\.json$|\.extras\.tar$/)
     }
   }
 }
@@ -341,4 +342,79 @@ test('計画に無い・EXCLUDED・不正な入力は拒否する', async ($: an
   expect((await $.tool.call({ tool: EXEC, plan_id: plan.planId, paths: ['/w/other'] })).deny).toContain('PLANNED でない')
   expect((await $.tool.call({ tool: EXEC, plan_id: plan.planId, paths: ['/w/old/../x'] })).deny).toContain('absolute')
   expect((await $.tool.call({ tool: EXEC, plan_id: plan.planId, paths: [] })).deny).toBeDefined()
+})
+
+/** 質問ごとの回答を返すモック。key は質問文。 */
+const answerPer = (on: any, byQuestion: (q: string) => string) =>
+  on('tool.call', { tool: /^AskUserQuestion$/ }, (_$: unknown, e: any) => ({ result: { answers: Object.fromEntries(e.questions.map((q: any) => [q.question, byQuestion(q.question)])) } }))
+const ask2 = (...qs: string[]) => ({ tool: 'AskUserQuestion', questions: qs.map((question, i) => ({ question, header: `q${i}`, multiSelect: false, options: [{ label: 'はい、実行する', description: '' }, { label: 'いいえ', description: '' }] })) }) as any
+
+test('複数質問: 別の質問への「はい」で、拒否した操作は承認されない (質問ごとに回答を対応づける)', async ($: any, on: any) => {
+  const w = world(on)
+  answerPer(on, q => (q.includes('[拒否]') ? 'いいえ' : 'はい、実行する'))
+  const plan = await makePlan($)
+  const q1 = `[拒否] ${plan.planId} の ${REPO} を実行しますか？`
+  await $.tool.call(ask2(q1, 'この後ビルドを続けますか？'))
+  const r = await $.tool.call({ tool: EXEC, plan_id: plan.planId, paths: [REPO], dry_run: false })
+  expect(r.deny).toContain('承認がない')
+  expect(w.calls.some(a => a[0] === 'mv')).toBe(false)
+})
+
+test('複数質問: 承認の対象は、肯定された質問に書かれた ID とパスだけ', async ($: any, on: any) => {
+  const w = world(on, { kinds: { '/w/other': 'dir' } })
+  answerPer(on, q => (q.includes('/w/other') ? 'いいえ' : 'はい、実行する'))
+  const plan = await makePlan($)
+  const yes = `${plan.planId} の ${REPO} を実行しますか？`
+  const no = `RSM-ffffffffff の /w/other を実行しますか？`
+  await $.tool.call(ask2(yes, no))
+  expect((await $.tool.call({ tool: PURGE, repo: '/w/other', op_id: 'RSM-ffffffffff-0', dry_run: false })).deny).toContain('承認の質問文')
+  const r = await $.tool.call({ tool: EXEC, plan_id: plan.planId, paths: [REPO], dry_run: false })
+  expect(r.result).toContain('OK')
+  expect(w.kinds.has('/w/old/node_modules')).toBe(false)
+})
+
+test('relocate: bundle に含まれない gitignore 済みのデータ (.env) があれば、アーカイブも退避もせず拒否する', async ($: any, on: any) => {
+  answer(on, 'はい、実行する')
+  const w = world(on, { st: { ignored: 'node_modules/\n.env\n' } })
+  const plan = await makePlan($, 'relocate', { destination: '/backup' })
+  await approve($, `${plan.planId} の ${REPO} を退避します。実行しますか？`)
+  const r = await $.tool.call({ tool: EXEC, plan_id: plan.planId, paths: [REPO], dry_run: false })
+  expect(r.result).toContain('IGNORED_DATA_NOT_PRESERVED')
+  expect(r.result).toContain('.env')
+  expect(w.calls.some(a => a[0] === 'mv' || a[0] === 'rm' || (a[0] === 'git' && a[3] === 'bundle'))).toBe(false)
+  expect(w.kinds.get(REPO)).toBe('dir')
+})
+
+test('relocate: .git の config / hooks / info を extras として保全し、purge は extras の sha256 も確認する', async ($: any, on: any) => {
+  answer(on, 'はい、実行する')
+  const w = world(on)
+  const plan = await makePlan($, 'relocate', { destination: '/backup' })
+  await approve($, `${plan.planId} の ${REPO} を退避します。実行しますか？`)
+  const r = await $.tool.call({ tool: EXEC, plan_id: plan.planId, paths: [REPO], dry_run: false })
+  expect(r.result).toContain('extras 保全')
+  const opId = `${plan.planId}-0`
+  const extras = `/backup/old-${opId}.extras.tar`
+  const tar = w.calls.find(a => a[0] === 'tar')!
+  expect(tar).toEqual(['tar', '-cf', extras, '-C', '/w/old/.git', 'config', 'hooks'])
+  expect(JSON.parse(w.text[`/backup/old-${opId}.manifest.json`]!).extras.contents).toEqual(['.git/config', '.git/hooks'])
+  w.st.shaMap = { [extras]: 'c'.repeat(64) }
+  await approve($, `退避済みの ${opId} (${REPO}) を削除しますか？`)
+  expect((await $.tool.call({ tool: PURGE, repo: REPO, op_id: opId, dry_run: false })).result).toContain('extras')
+  expect(w.calls.some(a => a[0] === 'rm' && a[a.length - 1]!.includes('.rsm-trash-'))).toBe(false)
+  assertSafe(w.calls)
+})
+
+test('archive: 既にある同名のファイル・復元リハーサル用ディレクトリは、衝突として拒否し、削除しない', async ($: any, on: any) => {
+  answer(on, 'はい、実行する')
+  const w = world(on)
+  const plan = await makePlan($, 'archive', { destination: '/backup' })
+  const rehearsal = `/backup/.rsm-rehearsal-${plan.planId.slice(4)}-0`
+  w.kinds.set(rehearsal, 'dir')
+  w.kinds.set(`${rehearsal}/precious`, 'file')
+  await approve($, `${plan.planId} の ${REPO} を実行しますか？`)
+  const r = await $.tool.call({ tool: EXEC, plan_id: plan.planId, paths: [REPO], dry_run: false })
+  expect(r.result).toContain('既にある')
+  expect(w.calls.some(a => a[0] === 'rm')).toBe(false)
+  expect(w.kinds.get(`${rehearsal}/precious`)).toBe('file')
+  expect(w.calls.some(a => a[0] === 'git' && (a[3] === 'bundle' || a[1] === 'clone'))).toBe(false)
 })

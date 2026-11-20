@@ -5,7 +5,7 @@ import {
 } from './policy'
 import { type Run, createRun, probe } from './runner'
 import { type Destination, type Operation, type Plan, formatPlan, planOne } from './plan'
-import { type Approval, PLAN_ID, OP_ID, approvalCovers, digest, idsIn, isAbsolutePath, isAffirmative } from './exec'
+import { type Approval, PLAN_ID, OP_ID, approvalCovers, approvedQuestionText, digest, idsIn, isAbsolutePath } from './exec'
 import { type Ctx, type Outcome, executeItem, purge, restore, revalidate, stateDigestOf } from './executor'
 
 const TOOL = 'mcp__repo-storage-manager__scan_repos'
@@ -272,14 +272,14 @@ export const register: Register = on => {
 
   // 承認は質問への回答から記録する。質問文が RSM-ID を含むものだけが対象で、選ばれた回答だけを見る
   on('tool.call', { tool: /^AskUserQuestion$/ }, async ($, e, next) => {
-    const qs = Array.isArray((e as any).questions) ? ((e as any).questions as { question?: unknown }[]) : []
-    const text = qs.map(q => String(q?.question ?? '')).join('\n')
-    if (idsIn(text).length === 0) return next(e)
+    const qs = Array.isArray((e as any).questions) ? ((e as any).questions as { question?: unknown; header?: unknown }[]) : []
+    if (!qs.some(q => idsIn(String(q?.question ?? '')).length > 0)) return next(e)
     const now = await $.clock.now()
     const r = await next(e)
     const answers = (r.result as { answers?: Record<string, unknown> } | undefined)?.answers
-    const chosen = Object.values(answers ?? {}).map(String).join(' ')
-    if (chosen !== '' && isAffirmative(chosen)) approval = { text, at: now }
+    // 質問ごとに、その質問自身への肯定の回答だけを承認にする。何も承認されなければ以前の承認も消す
+    const text = approvedQuestionText(qs, answers)
+    approval = text === '' ? undefined : { text, at: now }
     return r
   }).catch(($, e, next) => next(e))
 

@@ -85,6 +85,16 @@ export const revalidate = async (ctx: Ctx, plan: Plan, item: PlanItem): Promise<
       if (!(await ok(run, ['git', '-C', repo, 'check-ignore', '-q', '--', basename(t)]))) problems.push(`TARGET_NOT_IGNORED ${sanitize(t)}`)
     }
   } else {
+    if (item.operation === 'relocate') {
+      // bundle は git の履歴だけ。gitignore 済みの .env などは含まれず、元の削除で失われるため、再生成できる生成物以外が残るなら拒否する
+      const ig = await run(['git', '-C', repo, 'ls-files', '--others', '--ignored', '--exclude-standard', '--directory'])
+      if (ig.exitCode !== 0 || !now) problems.push('IGNORED_DATA_UNCHECKABLE')
+      else {
+        const allowed = new Set(now.caches.filter(c => c.class === 'REGENERABLE_LIKELY').map(c => `${c.name}/`))
+        const left = ig.stdout.split('\n').filter(l => l !== '' && !allowed.has(l))
+        if (left.length > 0) problems.push(`IGNORED_DATA_NOT_PRESERVED (bundle に含まれない gitignore 済みのデータ: ${left.slice(0, 5).map(sanitize).join(', ')})`)
+      }
+    }
     if (item.destination === undefined || !isAbsolutePath(item.destination)) problems.push('DESTINATION_INVALID')
     else if (!(await ok(run, ['test', '-d', item.destination])) || !(await ok(run, ['test', '-w', item.destination]))) problems.push('DESTINATION_UNUSABLE')
     if (within(item.destination ?? '/\0', repo)) problems.push('DESTINATION_INSIDE_REPO')
@@ -134,13 +144,16 @@ const archive = async (ctx: Ctx, plan: Plan, item: PlanItem, opId: string, steps
   const bundle = `${dest}/${basename(repo)}-${opId}.bundle`
   const manifest = `${dest}/${basename(repo)}-${opId}.manifest.json`
   const rehearsal = `${dest}/.rsm-rehearsal-${opId.slice(4)}`
+  const extras = `${dest}/${basename(repo)}-${opId}.extras.tar`
+  // この実行が作ったものだけを片付ける。既存のものは、衝突として拒否するだけで触らない
   const created: string[] = []
+  let rehearsalOwned = false
   const fail = async (problem: string) => {
     for (const f of created) if (f.startsWith(`${dest}/`)) await run(['rm', '--', f])
-    if (await ok(run, ['test', '-d', rehearsal])) await run(['rm', '-r', '--', rehearsal])
+    if (rehearsalOwned && (await ok(run, ['test', '-d', rehearsal]))) await run(['rm', '-r', '--', rehearsal])
     return { problem }
   }
-  if (await ok(run, ['test', '-e', bundle]) || await ok(run, ['test', '-e', manifest])) return fail('退避先に同名のファイルがある')
+  for (const f of [bundle, manifest, extras, rehearsal]) if (await ok(run, ['test', '-e', f])) return { problem: `退避先に同名のものが既にある (触らずに中止): ${f}` }
   const before = await refsOf(run, repo)
   if (before === undefined) return fail('refs を取得できない')
   const mk = await run(['git', '-C', repo, 'bundle', 'create', bundle, '--all'])
@@ -148,24 +161,38 @@ const archive = async (ctx: Ctx, plan: Plan, item: PlanItem, opId: string, steps
   created.push(bundle)
   steps.push(`bundle 作成: ${bundle}`)
   if (!(await ok(run, ['git', '-C', repo, 'bundle', 'verify', bundle]))) return fail('bundle verify に失敗')
+  rehearsalOwned = true
   const clone = await run(['git', 'clone', '--quiet', '--bare', '--', bundle, rehearsal])
   if (clone.exitCode !== 0) return fail(`復元リハーサル (clone) に失敗: ${sanitize(clone.stderr).slice(0, 200)}`)
   const after = await refsOf(run, rehearsal)
   const headSrc = (await out(run, ['git', '-C', repo, 'rev-parse', 'HEAD']))?.trim()
   const headDst = (await out(run, ['git', '-C', rehearsal, 'rev-parse', 'HEAD']))?.trim()
   if (await ok(run, ['test', '-d', rehearsal])) await run(['rm', '-r', '--', rehearsal])
+  rehearsalOwned = false
   if (after !== before || !headSrc || headSrc !== headDst) return fail('復元リハーサルで ref か HEAD が元と一致しない')
   steps.push('復元リハーサル: ref 一覧と HEAD が一致')
+  // .git の config・hooks・info/exclude は bundle に含まれないため、別の tar に保全する
+  const names: string[] = []
+  for (const n of ['config', 'hooks', 'info']) if (await ok(run, ['test', '-e', `${repo}/.git/${n}`])) names.push(n)
+  if (names.length > 0) {
+    const t = await run(['tar', '-cf', extras, '-C', `${repo}/.git`, ...names])
+    if (t.exitCode !== 0) return fail(`extras (.git の config / hooks / info) の保全に失敗: ${sanitize(t.stderr).slice(0, 200)}`)
+    created.push(extras)
+    steps.push(`extras 保全: ${extras} (${names.join(', ')})`)
+  }
   const sha256 = await sha256Of(run, bundle)
-  if (!sha256) return fail('sha256 を計算できない (sha256sum / shasum が無い)')
+  const extrasSha256 = names.length > 0 ? await sha256Of(run, extras) : undefined
+  if (!sha256 || (names.length > 0 && !extrasSha256)) return fail('sha256 を計算できない (sha256sum / shasum が無い)')
   const body = {
     schema: 'repo-preservation-manifest-1', opId, planId: plan.planId, source: repo, head: headSrc, bundle, sha256,
     refs: before.split('\n'), verifiedAt: new Date(await ctx.now()).toISOString(),
-    restore: `git clone -- ${bundle} <復元先>`, rehearsal: { refsMatch: true, headMatch: true },
+    extras: names.length > 0 ? { path: extras, sha256: extrasSha256, contents: names.map(n => `.git/${n}`) } : undefined,
+    notPreserved: ['gitignore 済みのファイル (再生成できる生成物を除く relocate は拒否する)', 'worktree・stash は計画の段階で除外'],
+    restore: `git clone -- ${bundle} <復元先> (extras は tar を .git に展開)`, rehearsal: { refsMatch: true, headMatch: true },
   }
   try { await ctx.fs.write(manifest, JSON.stringify(body, null, 2)) } catch (e) { return fail(`manifest を書けない: ${String(e)}`) }
   created.push(manifest)
-  return { archive: { bundle, manifest, sha256 } }
+  return { archive: { bundle, manifest, sha256, ...(names.length > 0 ? { extras, extrasSha256: extrasSha256! } : {}) } }
 }
 
 export const executeItem = async (ctx: Ctx, plan: Plan, item: PlanItem, index: number): Promise<Outcome> => {
@@ -245,6 +272,8 @@ export const purge = async (ctx: Ctx, repo: string, opId: string): Promise<Outco
   if (journal.operation === 'relocate' && !journal.archive) return { path: repo, ok: false, opId, steps, problems: ['アーカイブの記録が無い relocate は削除しない (復元不能)'] }
   if (journal.operation === 'relocate' && !(await ok(ctx.run, ['test', '-f', journal.archive!.bundle]))) return { path: repo, ok: false, opId, steps, problems: ['アーカイブの bundle が見つからないため削除しない (復元不能)'] }
   if (journal.archive && (await sha256Of(ctx.run, journal.archive.bundle)) !== journal.archive.sha256) return { path: repo, ok: false, opId, steps, problems: ['bundle の sha256 が記録と一致しないため削除しない'] }
+  if (journal.archive?.extras && (!(await ok(ctx.run, ['test', '-f', journal.archive.extras])) || (await sha256Of(ctx.run, journal.archive.extras)) !== journal.archive.extrasSha256))
+    return { path: repo, ok: false, opId, steps, problems: ['extras (.git の config / hooks) が無いか sha256 が記録と一致しないため削除しない'] }
   const cwds = await activeCwds(ctx.run)
   if (cwds === undefined || cwds.some(c => within(c, root) || within(c, repo))) return { path: repo, ok: false, opId, steps, problems: ['稼働中セッションを確認できない、またはこの場所にいる'] }
   const sizeText = await out(ctx.run, ['du', '-sk', '-x', root])
