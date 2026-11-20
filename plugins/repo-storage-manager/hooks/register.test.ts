@@ -151,7 +151,7 @@ const GIT_OK = {
   'git status': () => ({ exitCode: 0, stdout: '# branch.upstream o/m\n# branch.ab +0 -0\n' }),
   'git for-each-ref': () => ({ exitCode: 0, stdout: 'main\to/m\t\n' }),
   'git stash': () => ({ exitCode: 0, stdout: '' }),
-  'git log': () => ({ exitCode: 0, stdout: '1500000000\n' }),
+  'git log': (a: string[]) => ({ exitCode: 0, stdout: a.includes('-g') ? '1500000000\n' : '1500000000\n' }),
   'git ls-files': () => ({ exitCode: 0, stdout: '' }),
   'git rev-parse': (a: string[]) => ({ exitCode: 0, stdout: `false\n${a[2]}/.git\n${a[2]}/.git\n` }),
   'git check-ignore': () => ({ exitCode: 0, stdout: '' }),
@@ -368,4 +368,58 @@ test('scan: reposcan を --no-telemetry 付きで呼び、git がきれいでも
   expect(failed.repos[0]!.verdict.category).toBe('CANDIDATE')
   const none = await scan(fake({ ...GIT_OK, find: () => ({ exitCode: 0, stdout: '/w/a/.git\0' }) }), readConfig({ scanRoots: ['/w'] }))
   expect(none.degraded.join('\n')).toContain('reposcan 未導入')
+})
+
+import { activityOf, lastActivityOf } from './policy'
+
+test('活動日時: コミットと reflog の新しいほう。最近 checkout したリポジトリは古いとみなさない (#35)', () => {
+  expect(lastActivityOf({ lastCommitEpoch: 100, lastReflogEpoch: 200 })).toEqual({ epoch: 200, source: 'reflog' })
+  expect(lastActivityOf({ lastCommitEpoch: 300, lastReflogEpoch: 200 })).toEqual({ epoch: 300, source: 'commit' })
+  expect(lastActivityOf({ lastCommitEpoch: 100, lastReflogEpoch: undefined })).toEqual({ epoch: 100, source: 'commit' })
+  expect(lastActivityOf({ lastCommitEpoch: undefined, lastReflogEpoch: 50 })).toEqual({ epoch: 50, source: 'reflog' })
+  expect(lastActivityOf({ lastCommitEpoch: undefined, lastReflogEpoch: undefined })).toEqual({ epoch: undefined, source: undefined })
+  // コミットは古いが、先週 pull / checkout した
+  const used = { ...clean, lastCommitEpoch: NOW - 400 * 86400, lastReflogEpoch: NOW - 7 * 86400 }
+  expect(classify(used, NOW, 180)).toEqual({ category: 'PROTECTED', reasons: ['RECENT'] })
+  // reflog も古ければ CANDIDATE のまま
+  expect(classify({ ...used, lastReflogEpoch: NOW - 300 * 86400 }, NOW, 180).category).toBe('CANDIDATE')
+  // reflog が取れなくても、コミット日時だけで従来どおり判定する
+  expect(classify({ ...clean, lastReflogEpoch: undefined }, NOW, 180).category).toBe('CANDIDATE')
+})
+
+test('活動の区分と表示 (表示用で、削除許可ではない)', () => {
+  expect(activityOf(NOW - 5 * 86400, NOW, 180)).toBe('ACTIVE')
+  expect(activityOf(NOW - 100 * 86400, NOW, 180)).toBe('RECENT')
+  expect(activityOf(NOW - 200 * 86400, NOW, 180)).toBe('STALE')
+  expect(activityOf(undefined, NOW, 180)).toBe('UNKNOWN')
+})
+
+test('scan: reflog が新しければ、コミットが古くても CANDIDATE にせず、最終活動と出所を報告する', async () => {
+  const $ = fake({
+    ...GIT_OK,
+    find: () => ({ exitCode: 0, stdout: '/w/a/.git\0/w/b/.git\0' }),
+    'git log': (a: string[]) => ({ exitCode: 0, stdout: a.includes('-g') ? (a[2] === '/w/a' ? `HEAD@{${Math.floor(Date.now() / 1000) - 86400}}\n` : '') : '1500000000\n' }),
+  })
+  const r = await scan($, readConfig({ scanRoots: ['/w'] }))
+  const by = Object.fromEntries(r.repos.map(x => [x.path, x]))
+  expect(by['/w/a']!.verdict).toEqual({ category: 'PROTECTED', reasons: ['RECENT'] })
+  expect(by['/w/a']!.activitySource).toBe('reflog')
+  expect(by['/w/a']!.activity).toBe('ACTIVE')
+  expect(by['/w/b']!.verdict.category).toBe('CANDIDATE')
+  expect(by['/w/b']!.activitySource).toBe('commit')
+  expect(by['/w/b']!.activity).toBe('STALE')
+  const text = formatReport(r, 10, 'activity')
+  expect(text).toContain('最終活動')
+  expect(text.indexOf('/w/b')).toBeLessThan(text.indexOf('/w/a'))
+})
+
+import { REFLOG_ARGS, parseReflogEpoch } from './policy'
+
+test('reflog の時刻は %gd (HEAD@{epoch}) から取る。%ct はコミットの日時なので使わない', () => {
+  expect([...REFLOG_ARGS]).toEqual(['log', '-g', '-1', '--date=unix', '--format=%gd', 'HEAD'])
+  expect(REFLOG_ARGS.join(' ')).not.toContain('%ct')
+  expect(parseReflogEpoch('HEAD@{1795193345}\n')).toBe(1795193345)
+  expect(parseReflogEpoch('')).toBeUndefined()
+  expect(parseReflogEpoch('1500000000')).toBeUndefined()
+  expect(parseReflogEpoch('HEAD@{2}')).toBeUndefined()
 })

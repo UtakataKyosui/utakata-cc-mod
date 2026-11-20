@@ -16,7 +16,7 @@
 
 ## 出力
 
-- リポジトリごとに path、使用量、見かけサイズ (gdu 利用時のみ)、最終コミット日、分類と理由コード、nested の親、生成物候補を出す。
+- リポジトリごとに path、使用量、見かけサイズ (gdu 利用時のみ)、最終コミット日と最終活動 (reflog を含む)、分類と理由コード、nested の親、生成物候補を出す。
 - 分類は `PROTECTED` / `DIRTY` / `UNKNOWN` / `CANDIDATE`。`CANDIDATE` は「古く、ローカル検査を通った」という意味で、**削除許可ではない**。リモートの到達性は検証しないため、理由に `REMOTE_UNVERIFIED` を残す。
 - JSON のスキーマは `repo-storage-report-1` (`readOnly: true`、`degraded`、`counts`、`repos[]`)。仕様と判定順は [docs/schema.md](docs/schema.md)。
 - ツールの引数: `sort`、`format`、`category` (分類で絞る)、`min_bytes`、`stale_only`。
@@ -41,7 +41,7 @@
 | ghq | あれば `ghq list -p` で探索。なければ `scan_roots` にフォールバックし、縮退を報告する |
 | gdu | あれば `-o -` の ncdu 互換 JSON から使用量と見かけサイズを取る。なければ `du -sk -x` (使用量のみ) |
 | reposcan | あれば**参考信号として**使う。`-f all -o json --no-telemetry` で呼び (匿名統計を送らせない)、uncommitted / 未 push / stash を報告したら CANDIDATE を DIRTY (`SIGNAL_CONFLICT`) に倒す。判定を安全側へ上げることはしない。未導入・失敗・JSON の形が違うときは判定を変えず、縮退として報告する |
-| gst / ward | **呼び出さない**。gst は機械可読な出力が無く書き込み系を含む、ward は `--execute` を持つ。詳細は [docs/cli-survey.md](docs/cli-survey.md) |
+| gst / ward | **呼び出さない**。gst は機械可読な出力が無く書き込み系を含むため、活動日時は git (最終コミットと reflog の新しいほう) で取る。ward は `--execute` を持つ。詳細は [docs/cli-survey.md](docs/cli-survey.md) |
 
 子プロセスは argv 配列で実行し (シェル結合なし)、タイムアウトを付ける。外部出力の制御文字は表示前に無害化する。
 

@@ -169,9 +169,37 @@ export type Observation = {
   branches: LocalBranches | undefined
   stash: number | undefined
   lastCommitEpoch: number | undefined
+  /** HEAD の reflog の最新時刻 (checkout・pull など、コミット以外の利用)。取れなければ undefined */
+  lastReflogEpoch?: number | undefined
 }
 
 export type Verdict = { category: Category; reasons: Reason[] }
+
+/**
+ * HEAD の reflog の最新エントリの時刻を取る git の引数。`%ct` は -g を付けてもコミットの日時を返すため、
+ * エントリの時刻は reflog セレクタ (`%gd`) を `--date=unix` で出し、`HEAD@{<epoch>}` から取り出す。
+ */
+export const REFLOG_ARGS = ['log', '-g', '-1', '--date=unix', '--format=%gd', 'HEAD'] as const
+
+export const parseReflogEpoch = (out: string): number | undefined => {
+  const m = /@\{(\d{9,12})\}/.exec(out.trim())
+  return m ? Number(m[1]) : undefined
+}
+
+/** 活動日時。コミットと reflog (checkout・pull など) の新しいほう。最近使っているリポジトリを古いとみなさないため。 */
+export const lastActivityOf = (o: Pick<Observation, 'lastCommitEpoch' | 'lastReflogEpoch'>): { epoch: number | undefined; source: 'commit' | 'reflog' | undefined } => {
+  const c = o.lastCommitEpoch
+  const r = o.lastReflogEpoch
+  if (c === undefined && r === undefined) return { epoch: undefined, source: undefined }
+  if (r !== undefined && (c === undefined || r > c)) return { epoch: r, source: 'reflog' }
+  return { epoch: c, source: 'commit' }
+}
+
+export type Activity = 'ACTIVE' | 'RECENT' | 'STALE' | 'UNKNOWN'
+
+/** 活動の区分。30 日未満は ACTIVE、staleDays 未満は RECENT。表示用で、削除許可の条件ではない。 */
+export const activityOf = (epoch: number | undefined, nowEpoch: number, staleDays: number): Activity =>
+  epoch === undefined ? 'UNKNOWN' : nowEpoch - epoch >= staleDays * 86400 ? 'STALE' : nowEpoch - epoch < 30 * 86400 ? 'ACTIVE' : 'RECENT'
 
 /** 保守的な統合判定。不明・失敗は安全側 (UNKNOWN) に倒し、CANDIDATE も削除許可ではない。 */
 export const classify = (o: Observation, nowEpoch: number, staleDays: number): Verdict => {
@@ -198,7 +226,8 @@ export const classify = (o: Observation, nowEpoch: number, staleDays: number): V
 
   if (o.lastCommitEpoch === undefined) return { category: 'UNKNOWN', reasons: ['NO_COMMITS'] }
 
-  const stale = nowEpoch - o.lastCommitEpoch >= staleDays * 86400
+  const last = lastActivityOf(o).epoch ?? o.lastCommitEpoch
+  const stale = nowEpoch - last >= staleDays * 86400
   return stale
     ? { category: 'CANDIDATE', reasons: ['STALE', 'REMOTE_UNVERIFIED'] }
     : { category: 'PROTECTED', reasons: ['RECENT'] }
@@ -225,6 +254,10 @@ export type RepoReport = {
   apparentBytes: number | undefined
   sizeSource: 'gdu' | 'du' | 'unavailable'
   lastCommit: string | undefined
+  /** コミットと reflog の新しいほう (YYYY-MM-DD) とその出所、区分 */
+  lastActivity?: string | undefined
+  activitySource?: 'commit' | 'reflog' | undefined
+  activity?: Activity | undefined
   branchesNoUpstream: number
   stash: number | undefined
   extraWorktrees: number
@@ -258,7 +291,7 @@ export const humanBytes = (n: number | undefined): string => {
 export const sortRepos = (repos: RepoReport[], by: 'size' | 'activity' | 'risk'): RepoReport[] => {
   const rank: Record<Category, number> = { PROTECTED: 0, UNKNOWN: 1, DIRTY: 2, CANDIDATE: 3 }
   const copy = [...repos]
-  if (by === 'activity') return copy.sort((a, b) => (a.lastCommit ?? '').localeCompare(b.lastCommit ?? ''))
+  if (by === 'activity') return copy.sort((a, b) => (a.lastActivity ?? a.lastCommit ?? '').localeCompare(b.lastActivity ?? b.lastCommit ?? ''))
   if (by === 'risk') return copy.sort((a, b) => rank[a.verdict.category] - rank[b.verdict.category] || (b.usageBytes ?? -1) - (a.usageBytes ?? -1))
   return copy.sort((a, b) => (b.usageBytes ?? -1) - (a.usageBytes ?? -1))
 }
@@ -278,7 +311,7 @@ export const formatReport = (r: Report, topN: number, by: 'size' | 'activity' | 
     lines.push(
       `- ${sanitize(x.path)}`,
       `  [${x.verdict.category}] ${x.verdict.reasons.join(', ')} | 使用量 ${humanBytes(x.usageBytes)} (${x.sizeSource})` +
-        `${x.apparentBytes === undefined ? '' : ` / 見かけ ${humanBytes(x.apparentBytes)}`} | 最終コミット ${x.lastCommit ?? '不明'}`,
+        `${x.apparentBytes === undefined ? '' : ` / 見かけ ${humanBytes(x.apparentBytes)}`} | 最終コミット ${x.lastCommit ?? '不明'}${x.lastActivity && x.lastActivity !== x.lastCommit ? ` / 最終活動 ${x.lastActivity} (${x.activitySource})` : ''} [${x.activity ?? 'UNKNOWN'}]`,
     )
     if (x.nestedIn) lines.push(`  nested: ${sanitize(x.nestedIn)} 配下 (容量は親に含まれる可能性があり、合算しない)`)
     for (const c of x.caches) lines.push(`  生成物候補: ${c.name} ${humanBytes(c.bytes)} [${c.class}] ${c.evidence.join('; ')}${c.regen ? ` | 再生成: ${c.regen}` : ''} (リポジトリの使用量に含まれる)`)

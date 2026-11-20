@@ -1,6 +1,6 @@
 import type { Register } from 'claude-code'
 import {
-  CACHE_MARKERS, CACHE_NAMES, type CacheDir, classifyCache, type ReportOptions, filterReport, type Config, type Observation, type Report, type RepoReport, classify, dedupePaths, formatReport,
+  CACHE_MARKERS, CACHE_NAMES, type CacheDir, classifyCache, type ReportOptions, filterReport, type Config, type Observation, type Report, type RepoReport, classify, dedupePaths, activityOf, lastActivityOf, REFLOG_ARGS, parseReflogEpoch, formatReport,
   parseBranches, parseDu, parseNcdu, parseStatus, parseWorktrees, parentOf, readConfig, sanitize,
 } from './policy'
 import { type Run, createRun, probe } from './runner'
@@ -71,7 +71,7 @@ async function cachesOf(run: Run, path: string): Promise<CacheDir[]> {
 
 async function analyze(run: Run, path: string, source: 'ghq' | 'scan-root', cwd: string, all: string[], cfg: Config, gdu: boolean, now: number, signal?: Signal): Promise<RepoReport> {
   const git = (...a: string[]) => run(['git', '-C', path, ...a])
-  const [wt, st, br, stash, log, sub, bare] = await Promise.all([
+  const [wt, st, br, stash, log, sub, bare, reflog] = await Promise.all([
     git('worktree', 'list', '--porcelain'),
     git('status', '--porcelain=v2', '--branch', '--untracked-files=normal'),
     git('for-each-ref', '--format=%(refname:short)%09%(upstream:short)%09%(upstream:track)', 'refs/heads'),
@@ -79,6 +79,7 @@ async function analyze(run: Run, path: string, source: 'ghq' | 'scan-root', cwd:
     git('log', '-1', '--format=%ct'),
     git('ls-files', '--', '.gitmodules'),
     git('rev-parse', '--path-format=absolute', '--is-bare-repository', '--git-dir', '--git-common-dir'),
+    git(...REFLOG_ARGS),
   ])
   const rp = bare.stdout.trim().split('\n')
   const worktrees = wt.exitCode === 0 ? parseWorktrees(wt.stdout) : []
@@ -95,13 +96,18 @@ async function analyze(run: Run, path: string, source: 'ghq' | 'scan-root', cwd:
     branches: br.exitCode === 0 ? parseBranches(br.stdout) : undefined,
     stash: stash.exitCode === 0 ? stash.stdout.split('\n').filter(Boolean).length : undefined,
     lastCommitEpoch: log.exitCode === 0 && /^\d+$/.test(log.stdout.trim()) ? Number(log.stdout.trim()) : undefined,
+    // reflog が無い・取れないのは失敗ではない (shallow・gc 後など)。その場合はコミット日時だけで判断する
+    lastReflogEpoch: reflog.exitCode === 0 ? parseReflogEpoch(reflog.stdout) : undefined,
   }
+  const act = lastActivityOf(obs)
   const verdict = applySignal(classify(obs, now, cfg.staleDays), signal)
   const size = await sizeOf(run, path, gdu)
   return {
     path, source, verdict, commonDir: rp[2], ...(signal ? { signals: signal } : {}),
     usageBytes: size.usage, apparentBytes: size.apparent, sizeSource: size.source,
     lastCommit: obs.lastCommitEpoch === undefined ? undefined : new Date(obs.lastCommitEpoch * 1000).toISOString().slice(0, 10),
+    ...(act.epoch === undefined ? {} : { lastActivity: new Date(act.epoch * 1000).toISOString().slice(0, 10), activitySource: act.source }),
+    activity: activityOf(act.epoch, now, cfg.staleDays),
     branchesNoUpstream: obs.branches?.noUpstream.length ?? 0,
     stash: obs.stash,
     extraWorktrees: obs.extraWorktrees,

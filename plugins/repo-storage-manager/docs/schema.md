@@ -13,6 +13,7 @@
 | `counts` | 分類ごとの件数 (絞り込み前) |
 | `repos[].verdict` | `category` と `reasons[]` (理由コード) |
 | `repos[].usageBytes` / `apparentBytes` | 使用量と見かけサイズ。不明は省略 (0 にしない)。`sizeSource` が `gdu` / `du` / `unavailable` |
+| `repos[].lastCommit` / `lastActivity` / `activitySource` / `activity` | 最終コミット日、コミットと HEAD の reflog (checkout・pull など) の新しいほうの日付とその出所 (`commit` / `reflog`)、区分 (`ACTIVE` 30 日未満 / `RECENT` / `STALE` (`staleDays` 以上) / `UNKNOWN`)。区分は表示用で削除許可ではない。reflog が取れないのは失敗ではなく、コミット日時だけで判断する |
 | `repos[].nestedIn` | 別リポジトリの配下にあるときの親。容量は親に含まれ得るため合算しない |
 | `repos[].caches[]` | 生成物ディレクトリ候補。`class` (`REGENERABLE_LIKELY` / `UNKNOWN_REGEN` / `PROTECTED_DATA`)、`evidence`、`regen`、`ignored`、`tracked` を持つ |
 
@@ -26,7 +27,7 @@
 2. `UNKNOWN`: git のコマンド (submodule の確認を含む) が 1 つでも失敗、または stash 数が取れない
 3. `DIRTY`: 未コミット、未追跡、未 push、upstream 無しのブランチ、stash
 4. `UNKNOWN`: コミットが無い
-5. `CANDIDATE`: `staleDays` 以上更新が無い (`STALE` + `REMOTE_UNVERIFIED`)
+5. `CANDIDATE`: 最終活動 (コミットと reflog の新しいほう) が `staleDays` 以上前 (`STALE` + `REMOTE_UNVERIFIED`)
 6. `PROTECTED`: それ以外 (`RECENT`)
 
 `CANDIDATE` は「この後の確認に回す候補」で、削除・退避の許可ではない。古さ (`staleDays`) は候補の抽出条件にすぎない。承認付き操作 (#39) は、実行直前に本ポリシーを再評価し、結果が変わっていれば拒否する前提で別 PR で設計する。
