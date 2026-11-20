@@ -33,7 +33,7 @@ test('git 出力の解析', () => {
   expect(parseStatus('# branch.upstream o/m\n# branch.ab +2 -1\n1 .M x\n? y\n? z').valueOf()).toEqual({ dirty: 1, untracked: 2, ahead: 2, behind: 1, hasUpstream: true, detached: false })
   expect(parseBranches('main\torigin/main\t\nfeat\t\t\nfix\torigin/fix\t[ahead 1]')).toEqual({ noUpstream: ['feat'], ahead: ['fix'] })
   const wt = parseWorktrees('worktree /a b/日本語\nbranch refs/heads/main\n\nworktree /w\ndetached\nprunable gone')
-  expect(wt.map(w => [w.path, w.branch, w.isMain, w.prunable])).toEqual([['/a b/日本語', 'main', true, false], ['/w', '(detached)', false, true]])
+  expect(wt.map(w => [w.path, w.branch, w.isMain, w.isPrunable])).toEqual([['/a b/日本語', 'main', true, false], ['/w', '(detached)', false, true]])
 })
 
 test('サイズの解析: ncdu JSON と du、壊れた入力は undefined', () => {

@@ -20,22 +20,9 @@ export const readConfig = (o: Record<string, unknown> | undefined): Config => ({
 /** 外部コマンド出力に含まれる制御文字 (ANSI エスケープ含む) を無害化する。 */
 export const sanitize = (s: string): string => s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '?')
 
-export type Worktree = { path: string; branch: string; isMain: boolean; prunable: boolean; bare: boolean }
-
-/** `git worktree list --porcelain` の解析。 */
-export const parseWorktrees = (out: string): Worktree[] =>
-  out.trim().split('\n\n').filter(Boolean).map((block, i) => {
-    const lines = block.split('\n')
-    const field = (k: string) => lines.find(l => l === k || l.startsWith(`${k} `))?.slice(k.length + 1)
-    const branch = field('branch')
-    return {
-      path: field('worktree') ?? '',
-      branch: branch ? branch.replace('refs/heads/', '') : '(detached)',
-      isMain: i === 0,
-      prunable: lines.some(l => l.startsWith('prunable')),
-      bare: lines.includes('bare'),
-    }
-  })
+// worktree の解析は ghq-pane と共有する (正本は shared/git-worktree。scripts/sync-git-worktree.ts で同梱)
+export { parseWorktrees } from './git-worktree/parse'
+export type { ParsedWorktree as Worktree } from './git-worktree/parse'
 
 export type GitStatus = { dirty: number; untracked: number; ahead: number; behind: number; hasUpstream: boolean; detached: boolean }
 

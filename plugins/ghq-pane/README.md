@@ -25,6 +25,8 @@ brew install ghq
 
 ## 実装と検証
 
+worktree の解析 (`hooks/git-worktree/parse.ts`) は repo-storage-manager と共有する同梱コピーで、正本は [shared/git-worktree](../../shared/git-worktree/parse.ts)。直接編集しない。
+
 動作の入口は [hooks](hooks/)、状態の型は [types](types/index.d.ts) を参照。開発用の検証手順は [ルートREADME](../../README.md#開発) に記載している。
 
 [プラグイン一覧へ戻る](../../README.md)

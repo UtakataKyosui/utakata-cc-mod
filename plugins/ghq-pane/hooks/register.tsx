@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Repo, Snapshot, Worktree } from '../types'
+import type { Repo, Snapshot } from '../types'
+import { parseWorktrees } from './git-worktree/parse'
 
 const PANE = 'ghq'
 const snapshot = atom(
@@ -9,25 +10,6 @@ const snapshot = atom(
   { repos: [], error: '', isLoading: false } as Snapshot,
   { shape: 'snapshot-1' },
 )
-
-function parseWorktrees(out: string): Omit<Worktree, 'dirty'>[] {
-  return out
-    .trim()
-    .split('\n\n')
-    .filter(Boolean)
-    .map((block, i) => {
-      const lines = block.split('\n')
-      const field = (key: string) =>
-        lines.find(l => l === key || l.startsWith(`${key} `))?.slice(key.length + 1)
-      const branch = field('branch')
-      return {
-        path: field('worktree') ?? '',
-        branch: branch ? branch.replace('refs/heads/', '') : '(detached)',
-        isMain: i === 0,
-        isPrunable: lines.some(l => l.startsWith('prunable')),
-      }
-    })
-}
 
 let generation = 0
 
@@ -48,7 +30,9 @@ async function load($: EngineInterface) {
       paths.map(async path => {
         const wt = await $.process.run(['git', '-C', path, 'worktree', 'list', '--porcelain'])
         const worktrees = await Promise.all(
-          parseWorktrees(wt.stdout).map(async w => {
+          parseWorktrees(wt.stdout).map(async ({ path, branch, isMain, isPrunable }) => {
+            // 共有の解析は bare も返すが、表示の状態 (Snapshot) の形は変えない
+            const w = { path, branch, isMain, isPrunable }
             if (w.isPrunable) return { ...w, dirty: 0 }
             const st = await $.process.run(['git', '-C', w.path, 'status', '--porcelain'])
             return { ...w, dirty: st.stdout.split('\n').filter(Boolean).length }

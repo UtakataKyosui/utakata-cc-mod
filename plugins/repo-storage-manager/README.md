@@ -114,7 +114,7 @@ brew install ghq gdu
 - 生成物候補はリポジトリ直下のディレクトリ名 (`node_modules` など) の一致のみ。名前だけで安全とは断定せず、gitignore 済みかを併記する。
 - 稼働中の別セッションの作業ディレクトリは検出しない (現在のディレクトリのみ)。session-guard / workspace-isolation との連携は今後。
 - リモートの到達性は検証しない。ネットワークを使う操作はしない。
-- ghq-pane との共通化は未実施。プラグイン間でコードを共有する仕組み (shared の同期) が必要で、ghq-pane の表示を壊すリスクがあるため、ghq-pane は変更していない。重複排除と worktree の扱いは本プラグイン側で実装している。
+- worktree の解析は ghq-pane と共有している (`hooks/git-worktree/` は [shared/git-worktree](../../shared/git-worktree/parse.ts) の同梱コピーで、直接編集しない)。探索 (`ghq list -p`) と重複排除は本プラグイン側にある。ghq-pane の Pane UI との統合は未実施。
 - `git` 2.31 以上が必要 (`rev-parse --path-format=absolute`)。古い場合は UNKNOWN になる。
 - 承認付き実行は、実機 (macOS を含む) での検証が未了。テストは模擬した `process.run` / ファイルシステムの上で、承認・再検査・失敗・部分失敗・rm の引数を確認している。
 - `ps` / `lsof` が無い環境では実行を拒否する (fail-closed)。ward は使わない。
