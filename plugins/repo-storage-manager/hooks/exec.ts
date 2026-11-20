@@ -87,8 +87,12 @@ export const approvalCovers = (a: Approval | undefined, now: number, ids: string
   return undefined
 }
 
+/**
+ * 肯定の回答は、明示した形に完全一致するものだけ。「しません」「できません」「do not approve」のような否定や、
+ * 自由記述 (Other) の曖昧な文は、動詞を含んでいても承認にしない。
+ */
 export const isAffirmative = (answer: string): boolean =>
-  !/しない|キャンセル|やめる|保留|cancel|don.?t|no\b/i.test(answer) && /はい|yes|する|承認|実行|削除|退避|復元|approve/i.test(answer)
+  /^(はい|yes|y|ok|承認(する)?|(はい)?(実行|削除|退避|復元)(する)?|approve)$/i.test(answer.trim().replace(/[\s、。,.!！]/g, ''))
 
 export const idsIn = (text: string): string[] => [...new Set(text.match(/RSM-[0-9a-f]{10}(?:-\d{1,3})?/g) ?? [])]
 

@@ -75,6 +75,8 @@ pnpm run test:integration
 
 ローカルLLM(ollama)を使う各プラグインの共通呼び出し基盤は [shared/local-llm](shared/local-llm/README.md) にある。正本を編集したら `pnpm run sync:local-llm` で各プラグインへ同梱コピーを更新する(ずれは `test:integration` で検出する)。基盤自体のテストは `pnpm run test:shared`。
 
+`git worktree list --porcelain` の解析は ghq-pane と repo-storage-manager で共有している。正本は [shared/git-worktree](shared/git-worktree/parse.ts) で、編集したら `pnpm run sync:git-worktree` で各プラグインへ同梱コピーを更新する(ずれは `test:integration` で検出する)。ghq-pane の従来の出力と一致することは `pnpm run test:shared` で確認する。
+
 ローカルLLM併用の評価(off / auto / always の比較手順、機密を含まないフィクスチャ、計測レコードとレポート)は [evals/local-llm](evals/local-llm/README.md) にある。通常のテストはモックで動き(`pnpm run test:evals`、`test:integration` にも含む)、実 Claude・実 ollama での測定は手動手順として分けている。効果は未測定で、削減率は保証しない。
 
 Mod対応のClaude Codeで実行する。確認した環境(Claude Code 2.1.289)と制約は [harness-profile](plugins/harness-profile/README.md) を参照。依存CLIや外部サービスの前提条件は各READMEに記載している。

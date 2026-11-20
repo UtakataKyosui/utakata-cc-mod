@@ -26,7 +26,7 @@
 
 | 分類 | コード |
 |---|---|
-| PROTECTED | `CURRENT_DIR` `LINKED_WORKTREE` `BARE_REPO` `SUBMODULE` `EXTRA_WORKTREE` `RECENT` |
+| PROTECTED | `CURRENT_DIR` `SUBMODULE_CHECKOUT` `LINKED_WORKTREE` `BARE_REPO` `SUBMODULE` `EXTRA_WORKTREE` `RECENT` |
 | DIRTY | `UNCOMMITTED` `UNTRACKED` `UNPUSHED` `NO_UPSTREAM` `STASH` `DETACHED_HEAD` `SIGNAL_CONFLICT` |
 | UNKNOWN | `GIT_FAILED` `NO_COMMITS` |
 | CANDIDATE | `STALE` `REMOTE_UNVERIFIED` |
@@ -73,7 +73,7 @@
 
 1. `plan_preservation` で計画を作り、`plan_id` を得る。
 2. `execute_preservation` を `dry_run` (既定) で呼び、再検査の結果を確認する。
-3. **`AskUserQuestion` で、`plan_id` と全対象パスを質問文に書いて**利用者に尋ねる。承認は質問への**実際の回答**からだけ記録され (モデルは書き込めない)、**質問ごとに**その質問自身への肯定の回答だけが有効 (別の質問への「はい」では、拒否した操作は承認されない。回答と対応づけられない質問も承認しない)。承認の対象は、肯定された質問に書かれた ID とパスだけ。**180 秒・1 回限り**で、使うと失敗しても消える。質問文に ID か対象パスが欠けていれば、承認があっても実行しない。
+3. **`AskUserQuestion` で、`plan_id` と全対象パスを質問文に書いて**利用者に尋ねる。承認は質問への**実際の回答**からだけ記録され (モデルは書き込めない)、**質問ごとに**その質問自身への回答が、明示した肯定の形 (`はい` / `はい、実行する` / `実行する` / `削除する` / `退避する` / `復元する` / `承認する` / `yes` / `approve` など) に**完全一致**するときだけ有効。「実行しません」「承認できません」「do not approve」のような否定や、自由記述の曖昧な文は、動詞を含んでいても承認にしない。選択肢のラベルは `はい、実行する` のように書くこと (別の質問への「はい」では、拒否した操作は承認されない。回答と対応づけられない質問も承認しない)。承認の対象は、肯定された質問に書かれた ID とパスだけ。**180 秒・1 回限り**で、使うと失敗しても消える。質問文に ID か対象パスが欠けていれば、承認があっても実行しない。
 4. `dry_run: false` で呼ぶ。
 
 実行直前の再検査 (TOCTOU 対策): パスの正規化 (symlink 経由・ルートでない場合は拒否)、対象が symlink でないこと、git の状態 (HEAD・status・refs・stash) と判定が計画時から変わっていないこと、稼働中の Claude セッション (`ps` + `lsof` で cwd を確認し、確認できなければ拒否) がそのリポジトリにいないこと、生成物は追跡されず gitignore 済みであること、退避先が使えること。
@@ -114,7 +114,7 @@ brew install ghq gdu
 - 生成物候補はリポジトリ直下のディレクトリ名 (`node_modules` など) の一致のみ。名前だけで安全とは断定せず、gitignore 済みかを併記する。
 - 稼働中の別セッションの作業ディレクトリは検出しない (現在のディレクトリのみ)。session-guard / workspace-isolation との連携は今後。
 - リモートの到達性は検証しない。ネットワークを使う操作はしない。
-- ghq-pane との共通化は未実施。プラグイン間でコードを共有する仕組み (shared の同期) が必要で、ghq-pane の表示を壊すリスクがあるため、ghq-pane は変更していない。重複排除と worktree の扱いは本プラグイン側で実装している。
+- worktree の解析は ghq-pane と共有している (`hooks/git-worktree/` は [shared/git-worktree](../../shared/git-worktree/parse.ts) の同梱コピーで、直接編集しない)。探索 (`ghq list -p`) と重複排除は本プラグイン側にある。ghq-pane の Pane UI との統合は未実施。
 - `git` 2.31 以上が必要 (`rev-parse --path-format=absolute`)。古い場合は UNKNOWN になる。
 - 承認付き実行は、実機 (macOS を含む) での検証が未了。テストは模擬した `process.run` / ファイルシステムの上で、承認・再検査・失敗・部分失敗・rm の引数を確認している。
 - `ps` / `lsof` が無い環境では実行を拒否する (fail-closed)。ward は使わない。

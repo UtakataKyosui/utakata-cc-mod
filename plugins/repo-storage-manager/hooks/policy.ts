@@ -20,22 +20,9 @@ export const readConfig = (o: Record<string, unknown> | undefined): Config => ({
 /** 外部コマンド出力に含まれる制御文字 (ANSI エスケープ含む) を無害化する。 */
 export const sanitize = (s: string): string => s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '?')
 
-export type Worktree = { path: string; branch: string; isMain: boolean; prunable: boolean; bare: boolean }
-
-/** `git worktree list --porcelain` の解析。 */
-export const parseWorktrees = (out: string): Worktree[] =>
-  out.trim().split('\n\n').filter(Boolean).map((block, i) => {
-    const lines = block.split('\n')
-    const field = (k: string) => lines.find(l => l === k || l.startsWith(`${k} `))?.slice(k.length + 1)
-    const branch = field('branch')
-    return {
-      path: field('worktree') ?? '',
-      branch: branch ? branch.replace('refs/heads/', '') : '(detached)',
-      isMain: i === 0,
-      prunable: lines.some(l => l.startsWith('prunable')),
-      bare: lines.includes('bare'),
-    }
-  })
+// worktree の解析は ghq-pane と共有する (正本は shared/git-worktree。scripts/sync-git-worktree.ts で同梱)
+export { parseWorktrees } from './git-worktree/parse'
+export type { ParsedWorktree as Worktree } from './git-worktree/parse'
 
 export type GitStatus = { dirty: number; untracked: number; ahead: number; behind: number; hasUpstream: boolean; detached: boolean }
 
@@ -150,7 +137,7 @@ export const classifyCache = (
 
 export type Category = 'PROTECTED' | 'DIRTY' | 'UNKNOWN' | 'CANDIDATE'
 export type Reason =
-  | 'CURRENT_DIR' | 'LINKED_WORKTREE' | 'EXTRA_WORKTREE' | 'ACTIVE_WORKTREE' | 'BARE_REPO' | 'SUBMODULE'
+  | 'CURRENT_DIR' | 'SUBMODULE_CHECKOUT' | 'LINKED_WORKTREE' | 'EXTRA_WORKTREE' | 'ACTIVE_WORKTREE' | 'BARE_REPO' | 'SUBMODULE'
   | 'UNCOMMITTED' | 'UNTRACKED' | 'UNPUSHED' | 'NO_UPSTREAM' | 'STASH' | 'DETACHED_HEAD'
   | 'GIT_FAILED' | 'NO_COMMITS' | 'REMOTE_UNVERIFIED' | 'STALE' | 'RECENT' | 'SIGNAL_CONFLICT'
 
@@ -164,6 +151,8 @@ export type Observation = {
   /** git-dir が common-dir と異なる = 別リポジトリの linked worktree */
   linkedWorktree: boolean
   hasSubmodules: boolean
+  /** 別のリポジトリ (superproject) の submodule として checkout されている */
+  isSubmoduleCheckout?: boolean
   extraWorktrees: number
   status: GitStatus | undefined
   branches: LocalBranches | undefined
@@ -209,6 +198,7 @@ export const classify = (o: Observation, nowEpoch: number, staleDays: number): V
   if (o.bare) protectedR.push('BARE_REPO')
   if (o.linkedWorktree) protectedR.push('LINKED_WORKTREE')
   if (o.hasSubmodules) protectedR.push('SUBMODULE')
+  if (o.isSubmoduleCheckout) protectedR.push('SUBMODULE_CHECKOUT')
   if (o.extraWorktrees > 0) protectedR.push('EXTRA_WORKTREE')
   if (protectedR.length > 0) return { category: 'PROTECTED', reasons: protectedR }
 

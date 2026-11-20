@@ -33,7 +33,7 @@ test('git 出力の解析', () => {
   expect(parseStatus('# branch.upstream o/m\n# branch.ab +2 -1\n1 .M x\n? y\n? z').valueOf()).toEqual({ dirty: 1, untracked: 2, ahead: 2, behind: 1, hasUpstream: true, detached: false })
   expect(parseBranches('main\torigin/main\t\nfeat\t\t\nfix\torigin/fix\t[ahead 1]')).toEqual({ noUpstream: ['feat'], ahead: ['fix'] })
   const wt = parseWorktrees('worktree /a b/日本語\nbranch refs/heads/main\n\nworktree /w\ndetached\nprunable gone')
-  expect(wt.map(w => [w.path, w.branch, w.isMain, w.prunable])).toEqual([['/a b/日本語', 'main', true, false], ['/w', '(detached)', false, true]])
+  expect(wt.map(w => [w.path, w.branch, w.isMain, w.isPrunable])).toEqual([['/a b/日本語', 'main', true, false], ['/w', '(detached)', false, true]])
 })
 
 test('サイズの解析: ncdu JSON と du、壊れた入力は undefined', () => {
@@ -153,7 +153,7 @@ const GIT_OK = {
   'git stash': () => ({ exitCode: 0, stdout: '' }),
   'git log': (a: string[]) => ({ exitCode: 0, stdout: a.includes('-g') ? '1500000000\n' : '1500000000\n' }),
   'git ls-files': () => ({ exitCode: 0, stdout: '' }),
-  'git rev-parse': (a: string[]) => ({ exitCode: 0, stdout: `false\n${a[2]}/.git\n${a[2]}/.git\n` }),
+  'git rev-parse': (a: string[]) => ({ exitCode: 0, stdout: a.includes('--show-superproject-working-tree') ? '' : `false\n${a[2]}/.git\n${a[2]}/.git\n` }),
   'git check-ignore': () => ({ exitCode: 0, stdout: '' }),
   find: (a: string[]) => ({ exitCode: 0, stdout: a.includes('-print0') && a.includes('--') ? '' : '' }),
   du: () => ({ exitCode: 0, stdout: '8\t/w\n' }),
@@ -237,6 +237,7 @@ test('scan: linked worktree は保護し、同一 common-dir の二重登録 (sy
     find: () => ({ exitCode: 0, stdout: '/w/main/.git\0/w/link-to-main/.git\0/w/wt/.git\0' }),
     'git rev-parse': (a: string[]) => {
       const p = a[2]!
+      if (a.includes('--show-superproject-working-tree')) return { exitCode: 0, stdout: '' }
       if (p === '/w/wt') return { exitCode: 0, stdout: 'false\n/w/main/.git/worktrees/wt\n/w/main/.git\n' }
       return { exitCode: 0, stdout: 'false\n/w/main/.git\n/w/main/.git\n' }
     },
@@ -248,7 +249,7 @@ test('scan: linked worktree は保護し、同一 common-dir の二重登録 (sy
 })
 
 test('scan: rev-parse が古い git などで 3 行返さないときは UNKNOWN', async () => {
-  const $ = fake({ ...GIT_OK, find: () => ({ exitCode: 0, stdout: '/w/a/.git\0' }), 'git rev-parse': () => ({ exitCode: 0, stdout: 'false\n' }) })
+  const $ = fake({ ...GIT_OK, find: () => ({ exitCode: 0, stdout: '/w/a/.git\0' }), 'git rev-parse': (a: string[]) => ({ exitCode: 0, stdout: a.includes('--show-superproject-working-tree') ? '' : 'false\n' }) })
   expect((await scan($, readConfig({ scanRoots: ['/w'] }))).repos[0]!.verdict.category).toBe('UNKNOWN')
 })
 
@@ -422,4 +423,25 @@ test('reflog の時刻は %gd (HEAD@{epoch}) から取る。%ct はコミット�
   expect(parseReflogEpoch('')).toBeUndefined()
   expect(parseReflogEpoch('1500000000')).toBeUndefined()
   expect(parseReflogEpoch('HEAD@{2}')).toBeUndefined()
+})
+
+import { isAffirmative } from './exec'
+
+test('レビュー指摘: 否定・曖昧な回答は承認にならない。肯定は明示した形の完全一致だけ', () => {
+  for (const ok of ['はい', 'はい、実行する', 'はい、削除する', '実行する', '承認する', '承認', 'yes', 'Yes', 'approve', ' はい。 ']) expect(isAffirmative(ok)).toBe(true)
+  for (const ng of ['いいえ', '実行しません', '承認できません', 'do not approve', 'don\'t approve', '削除しない', '実行はまだ', 'Other: はい、でも待って', 'いいえ、実行しない', '', 'no', 'not yes'])
+    expect(isAffirmative(ng)).toBe(false)
+})
+
+test('レビュー指摘: submodule として checkout されたリポジトリは PROTECTED にする', async () => {
+  const $ = fake({
+    ...GIT_OK,
+    find: () => ({ exitCode: 0, stdout: '/w/super/child/.git\0' }),
+    'git rev-parse': (a: string[]) => ({ exitCode: 0, stdout: a.includes('--show-superproject-working-tree') ? '/w/super\n' : `false\n${a[2]}/.git\n${a[2]}/.git\n` }),
+  })
+  const r = await scan($, readConfig({ scanRoots: ['/w'] }))
+  expect(r.repos[0]!.verdict).toEqual({ category: 'PROTECTED', reasons: ['SUBMODULE_CHECKOUT'] })
+  // 確認に失敗したら UNKNOWN
+  const bad = fake({ ...GIT_OK, find: () => ({ exitCode: 0, stdout: '/w/a/.git\0' }), 'git rev-parse': (a: string[]) => (a.includes('--show-superproject-working-tree') ? { exitCode: 128, stdout: '' } : { exitCode: 0, stdout: `false\n${a[2]}/.git\n${a[2]}/.git\n` }) })
+  expect((await scan(bad, readConfig({ scanRoots: ['/w'] }))).repos[0]!.verdict.category).toBe('UNKNOWN')
 })
