@@ -308,7 +308,64 @@ test('plan: 計画の作成で読み取り系以外のコマンドを実行し�
   const p = await plan($, readConfig(undefined), { paths: ['/w/日本語 repo'], operation: 'archive', destination: '/backup' })
   expect(p.dryRun).toBe(true)
   expect(p.items[0]!.sameFilesystem).toBe(true)
-  const allowed = new Set(['git', 'find', 'du', 'pwd', 'df', 'test', 'ghq', 'gdu'])
+  const allowed = new Set(['git', 'find', 'du', 'pwd', 'df', 'test', 'ghq', 'gdu', 'reposcan'])
   for (const argv of seen) expect(allowed.has(argv[0]!)).toBe(true)
   expect(seen.some(a => a[0] === 'git' && ['bundle', 'clone', 'fetch', 'push'].includes(a[3] ?? ''))).toBe(false)
+})
+
+import { applySignal, byPath, parseReposcan, signalOf } from './reposcan'
+
+const RS = (over: object = {}) => JSON.stringify({
+  version: 1, totalScannedRepos: 1, generatedAt: '2026-11-20T00:00:00Z', warnings: [],
+  repoStates: [{ id: 'x', path: '/w/日本語 repo', repo: 'r', vcsType: 'git', branch: 'main', uncommitedFiles: [], remoteStatus: [{ remote: 'origin', ahead: 0, behind: 2 }], stashes: [], ...over }],
+})
+
+test('reposcan: 公開型の JSON を検証して取り込み、壊れた・形の違う出力は使わない (#34)', () => {
+  expect(parseReposcan(RS())?.repoStates[0]!.remoteStatus[0]!.behind).toBe(2)
+  // Go の nil slice は null で出る
+  expect(parseReposcan(RS({ uncommitedFiles: null, stashes: null, remoteStatus: null }))?.repoStates[0]).toMatchObject({ uncommitedFiles: [], stashes: [], remoteStatus: [] })
+  // 初回の通知文が前後に混ざっていても取り出せる
+  expect(parseReposcan(`telemetry notice...\n${RS()}\n`)?.version).toBe(1)
+  expect(parseReposcan('{broken')).toBeUndefined()
+  expect(parseReposcan('no json')).toBeUndefined()
+  expect(parseReposcan(JSON.stringify({ version: 'x', repoStates: [] }))).toBeUndefined()
+  expect(parseReposcan(RS({ path: 'relative' }))).toBeUndefined()
+  expect(parseReposcan(RS({ remoteStatus: [{ ahead: -1, behind: 0 }] }))).toBeUndefined()
+  expect(byPath(parseReposcan(RS())!).has('/w/日本語 repo')).toBe(true)
+})
+
+test('reposcan: 信号は判定を保守側にしか動かさない', () => {
+  const cand = { category: 'CANDIDATE' as const, reasons: ['STALE' as const, 'REMOTE_UNVERIFIED' as const] }
+  const sig = (over: object) => signalOf({ ...parseReposcan(RS())!.repoStates[0]!, ...over } as any)
+  expect(applySignal(cand, sig({}))).toBe(cand) // behind は無視
+  expect(applySignal(cand, sig({ uncommitedFiles: ['a'] }))).toEqual({ category: 'DIRTY', reasons: ['SIGNAL_CONFLICT'] })
+  expect(applySignal(cand, sig({ remoteStatus: [{ ahead: 1, behind: 0 }] })).category).toBe('DIRTY')
+  expect(applySignal(cand, sig({ stashes: ['s'] })).category).toBe('DIRTY')
+  expect(applySignal(cand, undefined)).toBe(cand)
+  const dirty = { category: 'DIRTY' as const, reasons: ['STASH' as const] }
+  expect(applySignal(dirty, sig({}))).toBe(dirty) // 信号が「きれい」でも DIRTY は変えない
+  const prot = { category: 'PROTECTED' as const, reasons: ['RECENT' as const] }
+  expect(applySignal(prot, sig({ uncommitedFiles: ['a'] }))).toBe(prot)
+})
+
+test('scan: reposcan を --no-telemetry 付きで呼び、git がきれいでも reposcan が dirty と言えば CANDIDATE にしない。失敗時は判定を変えず縮退を報告する', async () => {
+  const seen: string[][] = []
+  const mk = (rs: () => { exitCode: number; stdout: string }) => fake({
+    ...GIT_OK,
+    find: () => ({ exitCode: 0, stdout: '/w/a/.git\0' }),
+    reposcan: (a: string[]) => { seen.push(a); return a.includes('--version') ? { exitCode: 0, stdout: 'reposcan 1.0.0' } : rs() },
+  })
+  const dirtyJson = JSON.stringify({ version: 1, warnings: [], repoStates: [{ path: '/w/a', vcsType: 'git', uncommitedFiles: ['x'], remoteStatus: [], stashes: [] }] })
+  const r = await scan(mk(() => ({ exitCode: 0, stdout: dirtyJson })), readConfig({ scanRoots: ['/w'] }))
+  expect(r.repos[0]!.verdict).toEqual({ category: 'DIRTY', reasons: ['SIGNAL_CONFLICT'] })
+  expect(r.repos[0]!.signals).toMatchObject({ uncommitted: 1 })
+  const call = seen.find(a => a.includes('-o'))!
+  expect(call).toEqual(['reposcan', '-r', '/w', '-f', 'all', '-o', 'json', '--no-telemetry'])
+  const bad = await scan(mk(() => ({ exitCode: 0, stdout: '{broken' })), readConfig({ scanRoots: ['/w'] }))
+  expect(bad.repos[0]!.verdict.category).toBe('CANDIDATE')
+  expect(bad.degraded.join('\n')).toContain('JSON の形が想定と違う')
+  const failed = await scan(mk(() => ({ exitCode: 2, stdout: '' })), readConfig({ scanRoots: ['/w'] }))
+  expect(failed.repos[0]!.verdict.category).toBe('CANDIDATE')
+  const none = await scan(fake({ ...GIT_OK, find: () => ({ exitCode: 0, stdout: '/w/a/.git\0' }) }), readConfig({ scanRoots: ['/w'] }))
+  expect(none.degraded.join('\n')).toContain('reposcan 未導入')
 })

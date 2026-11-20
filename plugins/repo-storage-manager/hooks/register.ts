@@ -4,6 +4,7 @@ import {
   parseBranches, parseDu, parseNcdu, parseStatus, parseWorktrees, parentOf, readConfig, sanitize,
 } from './policy'
 import { type Run, createRun, probe } from './runner'
+import { type ReposcanReport, type Signal, applySignal, byPath, parseReposcan, signalOf } from './reposcan'
 import { type Destination, type Operation, type Plan, formatPlan, planOne } from './plan'
 import { type Approval, PLAN_ID, OP_ID, approvalCovers, approvedQuestionText, digest, idsIn, isAbsolutePath } from './exec'
 import { type Ctx, type Outcome, executeItem, purge, restore, revalidate, stateDigestOf } from './executor'
@@ -30,6 +31,11 @@ async function discover(run: Run, cfg: Config, degraded: string[]): Promise<{ pa
   }
   const unique = new Set(dedupePaths(found.map(f => f.path)))
   return found.filter(f => unique.delete(f.path.replace(/\/+$/, '')))
+}
+
+const ghqRoots = async (run: Run): Promise<string[]> => {
+  const r = await run(['ghq', 'root', '--all'])
+  return r.exitCode === 0 ? r.stdout.split('\n').filter(l => l.startsWith('/')) : []
 }
 
 async function sizeOf(run: Run, path: string, gdu: boolean): Promise<{ usage?: number; apparent?: number; source: RepoReport['sizeSource'] }> {
@@ -63,7 +69,7 @@ async function cachesOf(run: Run, path: string): Promise<CacheDir[]> {
   }))
 }
 
-async function analyze(run: Run, path: string, source: 'ghq' | 'scan-root', cwd: string, all: string[], cfg: Config, gdu: boolean, now: number): Promise<RepoReport> {
+async function analyze(run: Run, path: string, source: 'ghq' | 'scan-root', cwd: string, all: string[], cfg: Config, gdu: boolean, now: number, signal?: Signal): Promise<RepoReport> {
   const git = (...a: string[]) => run(['git', '-C', path, ...a])
   const [wt, st, br, stash, log, sub, bare] = await Promise.all([
     git('worktree', 'list', '--porcelain'),
@@ -90,10 +96,10 @@ async function analyze(run: Run, path: string, source: 'ghq' | 'scan-root', cwd:
     stash: stash.exitCode === 0 ? stash.stdout.split('\n').filter(Boolean).length : undefined,
     lastCommitEpoch: log.exitCode === 0 && /^\d+$/.test(log.stdout.trim()) ? Number(log.stdout.trim()) : undefined,
   }
-  const verdict = classify(obs, now, cfg.staleDays)
+  const verdict = applySignal(classify(obs, now, cfg.staleDays), signal)
   const size = await sizeOf(run, path, gdu)
   return {
-    path, source, verdict, commonDir: rp[2],
+    path, source, verdict, commonDir: rp[2], ...(signal ? { signals: signal } : {}),
     usageBytes: size.usage, apparentBytes: size.apparent, sizeSource: size.source,
     lastCommit: obs.lastCommitEpoch === undefined ? undefined : new Date(obs.lastCommitEpoch * 1000).toISOString().slice(0, 10),
     branchesNoUpstream: obs.branches?.noUpstream.length ?? 0,
@@ -113,12 +119,25 @@ export async function scan($: any, cfg: Config, only?: string[]): Promise<Report
     : await discover(run, cfg, degraded)
   const gdu = await has(run, 'gdu')
   if (!gdu) degraded.push('gdu 未導入: du -sk による使用量のみ (見かけサイズは不明)')
-  degraded.push('reposcan / gst / ward は MVP では呼び出さない。判定は git の一次確認のみ')
+  degraded.push('gst / ward は呼び出さない。判定は git の一次確認が正')
+  // reposcan は参考信号。--no-telemetry を必ず付け、使えない・形が違うときは縮退として報告するだけで判定は変えない
+  let scanned: ReposcanReport | undefined
+  if (await has(run, 'reposcan')) {
+    // 対象を絞った再検査 (計画・実行直前) でも、同じ参考信号を使う。対象のパスそのものを探索ルートにする
+    const roots = only ? [...new Set(only.filter(p => p.startsWith('/')))] : [...new Set([...(await ghqRoots(run)), ...cfg.scanRoots])]
+    if (roots.length === 0) degraded.push('reposcan: 探索ルートが無いため呼び出さない')
+    else {
+      const r = await run(['reposcan', ...roots.flatMap(x => ['-r', x]), '-f', 'all', '-o', 'json', '--no-telemetry'], 120_000)
+      scanned = r.exitCode === 0 ? parseReposcan(r.stdout) : undefined
+      degraded.push(scanned ? `reposcan: ${scanned.repoStates.length} 件の参考信号を取得 (JSON version ${scanned.version})` : 'reposcan: 実行失敗または JSON の形が想定と違うため、参考信号は使わない')
+    }
+  } else degraded.push('reposcan 未導入: 参考信号なし (git の一次確認のみ)')
+  const signals = scanned ? byPath(scanned) : undefined
   const all = found.map(f => f.path)
   const targets = found.slice(0, cfg.maxRepos)
   const now = Math.floor(Date.now() / 1000)
   const repos: RepoReport[] = []
-  for (const t of targets) repos.push(await analyze(run, t.path, t.source, cwd, all, cfg, gdu, now))
+  for (const t of targets) repos.push(await analyze(run, t.path, t.source, cwd, all, cfg, gdu, now, signals?.get(t.path.replace(/\/+$/, '')) ? signalOf(signals.get(t.path.replace(/\/+$/, ''))!) : undefined))
   // 同じ common-dir を指すもの (symlink 経由・二重登録) は 1 件にまとめ、まとめた分を縮退として報告する
   const seen = new Set<string>()
   const unique = repos.filter(r => {

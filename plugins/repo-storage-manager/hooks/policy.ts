@@ -152,7 +152,7 @@ export type Category = 'PROTECTED' | 'DIRTY' | 'UNKNOWN' | 'CANDIDATE'
 export type Reason =
   | 'CURRENT_DIR' | 'LINKED_WORKTREE' | 'EXTRA_WORKTREE' | 'ACTIVE_WORKTREE' | 'BARE_REPO' | 'SUBMODULE'
   | 'UNCOMMITTED' | 'UNTRACKED' | 'UNPUSHED' | 'NO_UPSTREAM' | 'STASH' | 'DETACHED_HEAD'
-  | 'GIT_FAILED' | 'NO_COMMITS' | 'REMOTE_UNVERIFIED' | 'STALE' | 'RECENT'
+  | 'GIT_FAILED' | 'NO_COMMITS' | 'REMOTE_UNVERIFIED' | 'STALE' | 'RECENT' | 'SIGNAL_CONFLICT'
 
 export type Observation = {
   path: string
@@ -230,6 +230,8 @@ export type RepoReport = {
   extraWorktrees: number
   nestedIn: string | undefined
   caches: CacheDir[]
+  /** 参考信号 (reposcan)。判定を保守側へ動かすことはあっても、CANDIDATE へ上げることはない */
+  signals?: { source: 'reposcan'; uncommitted: number; ahead: number; behind: number; stashes: number } | undefined
 }
 
 export type Report = {

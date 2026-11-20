@@ -27,7 +27,7 @@
 | 分類 | コード |
 |---|---|
 | PROTECTED | `CURRENT_DIR` `LINKED_WORKTREE` `BARE_REPO` `SUBMODULE` `EXTRA_WORKTREE` `RECENT` |
-| DIRTY | `UNCOMMITTED` `UNTRACKED` `UNPUSHED` `NO_UPSTREAM` `STASH` `DETACHED_HEAD` |
+| DIRTY | `UNCOMMITTED` `UNTRACKED` `UNPUSHED` `NO_UPSTREAM` `STASH` `DETACHED_HEAD` `SIGNAL_CONFLICT` |
 | UNKNOWN | `GIT_FAILED` `NO_COMMITS` |
 | CANDIDATE | `STALE` `REMOTE_UNVERIFIED` |
 
@@ -40,7 +40,8 @@
 | git | 必須。status / worktree / stash / ブランチの upstream / 最終コミットの一次確認。最終判定はこのプラグインの保守的なポリシーで行う |
 | ghq | あれば `ghq list -p` で探索。なければ `scan_roots` にフォールバックし、縮退を報告する |
 | gdu | あれば `-o -` の ncdu 互換 JSON から使用量と見かけサイズを取る。なければ `du -sk -x` (使用量のみ) |
-| reposcan / gst / ward | **呼び出さない**。reposcan は JSON の契約が未確認で匿名統計を既定で送る、gst は機械可読な出力が無く書き込み系を含む、ward は `--execute` を持つため #38 で再評価。詳細は [docs/cli-survey.md](docs/cli-survey.md) |
+| reposcan | あれば**参考信号として**使う。`-f all -o json --no-telemetry` で呼び (匿名統計を送らせない)、uncommitted / 未 push / stash を報告したら CANDIDATE を DIRTY (`SIGNAL_CONFLICT`) に倒す。判定を安全側へ上げることはしない。未導入・失敗・JSON の形が違うときは判定を変えず、縮退として報告する |
+| gst / ward | **呼び出さない**。gst は機械可読な出力が無く書き込み系を含む、ward は `--execute` を持つ。詳細は [docs/cli-survey.md](docs/cli-survey.md) |
 
 子プロセスは argv 配列で実行し (シェル結合なし)、タイムアウトを付ける。外部出力の制御文字は表示前に無害化する。
 
