@@ -25,6 +25,10 @@ export type Manifest = {
 
 export type PlanItem = {
   path: string
+  /** archive / relocate の退避先 */
+  destination?: string
+  /** 計画時の判定と git の状態のダイジェスト。実行直前に再計算して比較する */
+  stateDigest?: string
   operation: Operation
   status: 'PLANNED' | 'EXCLUDED'
   excluded: ExcludeReason[]
@@ -42,7 +46,7 @@ export type PlanItem = {
   requiresBeforeExecution: string[]
 }
 
-export type Plan = { schema: 'repo-preservation-plan-draft-1'; dryRun: true; items: PlanItem[]; degraded: string[] }
+export type Plan = { schema: 'repo-preservation-plan-draft-1'; planId: string; dryRun: true; items: PlanItem[]; degraded: string[] }
 
 const PRE = ['対象ごとのユーザーの明示承認', '実行直前のパス正規化・symlink・git/worktree 状態の再検査', 'ロック・稼働中セッションの確認']
 
@@ -55,7 +59,7 @@ export const planOne = (r: RepoReport, op: Operation, dest: Destination | undefi
     steps: [] as string[][], restoreRehearsal: [] as string[], manifest: undefined as Manifest | undefined, targets: [] as string[],
     unconfirmed: ['リモートの到達性は未検証', 'ward の出力・復元手順は実機で未確認 (docs/cli-survey.md)'], requiresBeforeExecution: PRE,
   }
-  const done = (): PlanItem => ({ ...base, excluded, status: excluded.length > 0 ? 'EXCLUDED' : 'PLANNED' })
+  const done = (): PlanItem => ({ ...base, ...(dest && op !== 'cache-only' ? { destination: dest.path } : {}), excluded, status: excluded.length > 0 ? 'EXCLUDED' : 'PLANNED' })
 
   if (r.verdict.category === 'UNKNOWN') excluded.push('STATE_UNKNOWN')
   if (r.verdict.reasons.includes('CURRENT_DIR')) excluded.push('CURRENT_DIR')
@@ -94,7 +98,8 @@ export const planOne = (r: RepoReport, op: Operation, dest: Destination | undefi
     const bundle = `${dest.path}/${name}.bundle`
     base.steps = [
       ['(dry-run) git', '-C', r.path, 'bundle', 'create', bundle, '--all'],
-      ['(dry-run) 追加で保全するもの: stash・hooks・.git/config・未追跡ファイルの一覧を manifest に記録'],
+      ['(dry-run) tar', '-cf', `${dest.path}/${name}.extras.tar`, '-C', `${r.path}/.git`, 'config hooks info (存在するもの。bundle に含まれない)'],
+      ['(dry-run) relocate は gitignore 済みのデータ (.env など、再生成できる生成物を除く) が残っていれば実行時に拒否する'],
     ]
     base.restoreRehearsal = [
       `git bundle verify ${bundle}`,
@@ -105,7 +110,7 @@ export const planOne = (r: RepoReport, op: Operation, dest: Destination | undefi
     base.manifest = {
       schema: 'repo-preservation-manifest-draft-1', source: r.path,
       note: op === 'relocate' ? '退避後の元の削除は別操作・別承認' : 'アーカイブの作成のみ。元は残る',
-      contents: ['git bundle (--all)', 'stash の一覧', 'hooks / .git/config', '未追跡ファイルの一覧'],
+      contents: ['git bundle (--all)', 'extras tar (.git の config / hooks / info)', 'manifest (sha256・ref 一覧)'],
       hashes: 'sha256 を作成時に記録する (未計算)',
     }
   }
@@ -113,7 +118,7 @@ export const planOne = (r: RepoReport, op: Operation, dest: Destination | undefi
 }
 
 export const formatPlan = (p: Plan): string => {
-  const lines = ['# 保全計画 (Dry Run・何も実行していない)', 'schema: ' + p.schema]
+  const lines = ['# 保全計画 (Dry Run・何も実行していない)', 'schema: ' + p.schema, `plan_id: ${p.planId}`]
   if (p.degraded.length > 0) lines.push('', ...p.degraded.map(d => `- ${d}`))
   for (const i of p.items) {
     lines.push('', `## ${sanitize(i.path)} — ${i.operation} [${i.status}]`)

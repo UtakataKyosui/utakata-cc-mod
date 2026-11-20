@@ -1,12 +1,18 @@
 # repo-storage-manager
 
-ローカルに溜まった Git リポジトリと生成物 (`node_modules` / `target` など) の容量・活動状況・保全リスクを**読み取り専用**で解析する。Issue #28 の MVP (読み取り専用の解析) にあたり、削除・移動・アーカイブ・`git fetch` / `push` は行わない。
+ローカルに溜まった Git リポジトリと生成物 (`node_modules` / `target` など) の容量・活動状況・保全リスクを解析し、利用者の**明示承認があるときだけ**整理・退避する。
+
+- 解析 (`/repo-storage`、`scan_repos`) と計画 (`plan_preservation`) は**読み取り専用**で、削除・移動・`git fetch` / `push` は行わない。
+- 実行系 (`execute_preservation` / `purge_preservation` / `restore_preservation`) は承認・再検査・ジャーナルを経てだけ変更する。詳細は「承認付きの実行」。
 
 | 入口 | 中身 |
 |---|---|
 | `/repo-storage` | 解析して上位N件のレポートを返す |
 | `mcp__repo-storage-manager__scan_repos` | モデル向けの解析ツール。引数は後述 |
-| `mcp__repo-storage-manager__plan_preservation` | 整理・退避の**計画だけ**を作る (Dry Run)。何も実行・変更しない |
+| `mcp__repo-storage-manager__plan_preservation` | 整理・退避の**計画だけ**を作る (Dry Run)。何も実行・変更しない。`plan_id` (RSM-...) を返す |
+| `mcp__repo-storage-manager__execute_preservation` | 計画を実行する。`dry_run` が既定 `true`。`false` には承認が必要 |
+| `mcp__repo-storage-manager__purge_preservation` | 退避済みのものを削除して容量を回収する。承認が必要 |
+| `mcp__repo-storage-manager__restore_preservation` | 退避したものを元に戻す |
 
 ## 出力
 
@@ -58,7 +64,29 @@
 - 退避先が存在しない・書き込めないなど復元を確認できない計画は `EXCLUDED` にする。
 - `UNKNOWN`、現在の作業ディレクトリは除外する。
 - ward は未実査のため使わない。手順は git の bundle で組み立てた案で、実機での復元リハーサルは未確認。
-- 実行には、対象ごとの明示承認と、実行直前の再検査が必要 (#39 で別 PR)。
+- 実行は次の「承認付きの実行」に従う。
+
+## 承認付きの実行
+
+承認なしでは何も変更しない。実行は次の順で、すべてを満たすときだけ進む。
+
+1. `plan_preservation` で計画を作り、`plan_id` を得る。
+2. `execute_preservation` を `dry_run` (既定) で呼び、再検査の結果を確認する。
+3. **`AskUserQuestion` で、`plan_id` と全対象パスを質問文に書いて**利用者に尋ねる。承認は質問への**実際の回答**からだけ記録され (モデルは書き込めない)、**質問ごとに**その質問自身への肯定の回答だけが有効 (別の質問への「はい」では、拒否した操作は承認されない。回答と対応づけられない質問も承認しない)。承認の対象は、肯定された質問に書かれた ID とパスだけ。**180 秒・1 回限り**で、使うと失敗しても消える。質問文に ID か対象パスが欠けていれば、承認があっても実行しない。
+4. `dry_run: false` で呼ぶ。
+
+実行直前の再検査 (TOCTOU 対策): パスの正規化 (symlink 経由・ルートでない場合は拒否)、対象が symlink でないこと、git の状態 (HEAD・status・refs・stash) と判定が計画時から変わっていないこと、稼働中の Claude セッション (`ps` + `lsof` で cwd を確認し、確認できなければ拒否) がそのリポジトリにいないこと、生成物は追跡されず gitignore 済みであること、退避先が使えること。
+
+| 操作 | 実行内容 |
+|---|---|
+| `cache-only` | 生成物を `<リポジトリの親>/.rsm-trash-<id>/` へ **rename するだけ** (同一ファイルシステムのみ。コピーになる移動は拒否)。容量はまだ回収されない。途中で失敗したら退避済みのものを元に戻す |
+| `archive` | `git bundle create --all` → `bundle verify` → 一時ディレクトリへの clone で ref と HEAD を照合 (復元リハーサル) → `.git` の config / hooks / info を extras tar に保全 → sha256 → manifest。一致しなければ**この実行が作ったファイルだけ**を片付けて失敗 (退避先に同名のファイルや復元リハーサル用ディレクトリが既にあれば、何も削除せず衝突として拒否)。元は残る |
+| `relocate` | archive のあと、退避の直前に再検査し、元のリポジトリを退避ディレクトリへ rename。**bundle に含まれない gitignore 済みのデータ (`.env` など。再生成できる生成物を除く) が残っていれば、アーカイブも退避もせず拒否**する |
+
+- 退避の記録 (ジャーナル) は退避ディレクトリの `journal.json`で、取引の一部として扱う。動かす前に意図 (`pending`) を書き、書けなければ何も動かさずに中止する。動かした後に確定 (`staged`) を書けなければ元に戻す。途中で止まった `pending` も、エントリごとの状態を見て `restore_preservation` で戻せる (`purge` は `staged` だけ)。`restore_preservation` はこれを読み、元の場所に何かあれば拒否する。
+- 削除は `purge_preservation` だけで、承認 (`op_id` と `repo` の復唱) が必要。検証済みの退避ディレクトリに対する `rm -r -- <path>` のみを実行する (`rm -rf`、シェル経由、glob は使わない)。relocate は、アーカイブの bundle と extras が存在し、sha256 が記録と一致するときだけ。復元できない可能性があれば拒否する。
+- purge の結果は、削除した退避データのサイズ (du、実測) と空き容量の変化 (df、実測。他のプロセスの影響を含む) を分けて出す。計画時の推定値とは区別する。
+- 自動実行・定期実行・リモート操作・force push・GitHub リポジトリの削除はしない。
 
 ## ツールの引数
 
@@ -87,7 +115,10 @@ brew install ghq gdu
 - リモートの到達性は検証しない。ネットワークを使う操作はしない。
 - ghq-pane との共通化は未実施。プラグイン間でコードを共有する仕組み (shared の同期) が必要で、ghq-pane の表示を壊すリスクがあるため、ghq-pane は変更していない。重複排除と worktree の扱いは本プラグイン側で実装している。
 - `git` 2.31 以上が必要 (`rev-parse --path-format=absolute`)。古い場合は UNKNOWN になる。
-- 承認付きの実際の整理・退避 (#39) は未実装。
+- 承認付き実行は、実機 (macOS を含む) での検証が未了。テストは模擬した `process.run` / ファイルシステムの上で、承認・再検査・失敗・部分失敗・rm の引数を確認している。
+- `ps` / `lsof` が無い環境では実行を拒否する (fail-closed)。ward は使わない。
+- 退避ディレクトリはリポジトリの親に作るため、親に書き込めない場合は実行できない。
+- ホームディレクトリ外のマウントポイントを跨ぐ操作 (別ファイルシステムへの退避) は rename できないため拒否する。
 
 ## 実装と検証
 

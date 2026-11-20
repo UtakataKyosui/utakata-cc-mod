@@ -134,6 +134,7 @@ import { scan } from './register'
 
 /** コマンドの先頭語ごとに応答を返す偽の $.process.run。実機の CLI なしで scan を検証する。 */
 const fake = (handlers: Record<string, (argv: string[]) => { exitCode: number; stdout: string; stderr?: string }>) => ({
+  clock: { now: async () => 1_000_000 },
   process: {
     run: async (argv: string[]) => {
       const key = argv[0] === 'git' ? `git ${argv[3] ?? ''}` : argv[0]!
@@ -292,7 +293,7 @@ test('保全計画: cache-only は再生成できそうな生成物だけを対�
   expect(i.status).toBe('PLANNED')
   expect(i.estimatedReclaimBytes).toBe(300)
   expect(planOne(repoReport({ caches: [cache('UNKNOWN_REGEN') as any] }), 'cache-only', undefined, '/').excluded).toContain('NO_REGENERABLE_CACHE')
-  expect(formatPlan({ schema: 'repo-preservation-plan-draft-1', dryRun: true, items: [i], degraded: [] })).toContain('実行許可ではない')
+  expect(formatPlan({ schema: 'repo-preservation-plan-draft-1', planId: 'RSM-0123456789', dryRun: true, items: [i], degraded: [] })).toContain('実行許可ではない')
 })
 
 test('plan: 計画の作成で読み取り系以外のコマンドを実行しない', async () => {

@@ -5,6 +5,8 @@ import {
 } from './policy'
 import { type Run, createRun, probe } from './runner'
 import { type Destination, type Operation, type Plan, formatPlan, planOne } from './plan'
+import { type Approval, PLAN_ID, OP_ID, approvalCovers, approvedQuestionText, digest, idsIn, isAbsolutePath } from './exec'
+import { type Ctx, type Outcome, executeItem, purge, restore, revalidate, stateDigestOf } from './executor'
 
 const TOOL = 'mcp__repo-storage-manager__scan_repos'
 const PLAN_TOOL = 'mcp__repo-storage-manager__plan_preservation'
@@ -143,6 +145,7 @@ const mountOf = async (run: Run, path: string): Promise<string | undefined> => {
 
 /** 保全の計画だけを作る。書き込み・削除・移動はしない。 */
 export async function plan($: any, cfg: Config, input: { paths: string[]; operation: Operation; destination?: string }): Promise<Plan> {
+  const run0 = makeRun($)
   const run = makeRun($)
   const report = await scan($, cfg, input.paths)
   let dest: Destination | undefined
@@ -152,11 +155,35 @@ export async function plan($: any, cfg: Config, input: { paths: string[]; operat
     dest = { path: input.destination.replace(/\/+$/, ''), exists, writable, fs: { mount: exists ? await mountOf(run, input.destination) : undefined } }
   }
   const items = []
-  for (const r of report.repos) items.push(planOne(r, input.operation, dest, await mountOf(run, r.path)))
-  return { schema: 'repo-preservation-plan-draft-1', dryRun: true, items, degraded: report.degraded }
+  for (const r of report.repos) {
+    const item = planOne(r, input.operation, dest, await mountOf(run, r.path))
+    // 実行直前に同じ式で再計算して比較するダイジェスト。取れなければ状態不明として除外する
+    const d = await stateDigestOf(run0, r)
+    if (d === undefined) { item.excluded.push('STATE_UNKNOWN'); item.status = 'EXCLUDED' } else item.stateDigest = d
+    items.push(item)
+  }
+  const planId = `RSM-${digest(`${await $.clock.now()}|${items.map(i => `${i.path}:${i.stateDigest}`).join('|')}`).slice(0, 10)}`
+  return { schema: 'repo-preservation-plan-draft-1', planId, dryRun: true, items, degraded: report.degraded }
 }
 
+const ctxOf = ($: any, cfg: Config): Ctx => ({
+  run: makeRun($),
+  fs: { read: p => $.fs.read(p), write: (p, t) => $.fs.write(p, t) },
+  now: () => $.clock.now(),
+  rescan: async path => (await scan($, cfg, [path])).repos[0],
+})
+
+const EXEC_TOOL = 'mcp__repo-storage-manager__execute_preservation'
+const PURGE_TOOL = 'mcp__repo-storage-manager__purge_preservation'
+const RESTORE_TOOL = 'mcp__repo-storage-manager__restore_preservation'
+
+const fmtOutcome = (o: Outcome & { freedBytes?: number }) =>
+  [`${o.ok ? 'OK' : '失敗'}: ${sanitize(o.path)}${o.opId ? ` (${o.opId})` : ''}`, ...o.steps.map(s => `  - ${s}`), ...o.problems.map(p => `  ! ${p}`)].join('\n')
+
 export const register: Register = on => {
+  // 同一セッション内の計画と承認。承認は AskUserQuestion の実際の回答からだけ記録する (モデルは書き込めない)
+  const plans = new Map<string, Plan>()
+  let approval: Approval | undefined
 
   on('session.start', async ($, e, next) => {
     await $.tool.register({
@@ -194,6 +221,30 @@ export const register: Register = on => {
         required: ['paths', 'operation'],
       },
     })
+    await $.tool.register({
+      name: 'execute_preservation',
+      description:
+        '計画 (plan_preservation) を実行する。dry_run が既定で true で、その間は再検査の結果だけを返し何も変更しない。dry_run:false には、AskUserQuestion で plan_id と対象パスを復唱して得た利用者の承認が必要 (180 秒・1 回限り)。cache-only は生成物を退避ディレクトリへ rename するだけで容量は回収されない。回収は purge_preservation。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          plan_id: { type: 'string', description: 'plan_preservation が返した RSM-... の ID' },
+          paths: { type: 'array', items: { type: 'string' }, description: '実行する対象リポジトリの絶対パス (計画に含まれ PLANNED のもの)' },
+          dry_run: { type: 'boolean', description: '既定 true' },
+        },
+        required: ['plan_id', 'paths'],
+      },
+    })
+    await $.tool.register({
+      name: 'purge_preservation',
+      description: '退避済み (staged) のものを削除して容量を回収する。AskUserQuestion で op_id と repo を復唱した承認が必要。relocate はアーカイブの sha256 が一致するときだけ。',
+      inputSchema: { type: 'object', properties: { repo: { type: 'string' }, op_id: { type: 'string' }, dry_run: { type: 'boolean', description: '既定 true' } }, required: ['repo', 'op_id'] },
+    })
+    await $.tool.register({
+      name: 'restore_preservation',
+      description: '退避したものを元の場所へ戻す。元の場所に何かあれば拒否する。',
+      inputSchema: { type: 'object', properties: { repo: { type: 'string' }, op_id: { type: 'string' } }, required: ['repo', 'op_id'] },
+    })
     const known = await $.command.list()
     if (!known.some((c: { name: string }) => c.name === 'repo-storage'))
       await $.command.register({ name: 'repo-storage', description: 'ローカルリポジトリの容量と保全リスクを読み取り専用で解析する' })
@@ -215,8 +266,65 @@ export const register: Register = on => {
     const p = await plan($, readConfig(undefined), {
       paths: i.paths.slice(0, 50), operation: i.operation, ...(typeof i.destination === 'string' ? { destination: i.destination } : {}),
     })
+    plans.set(p.planId, p)
     return { result: i.format === 'json' ? JSON.stringify(p) : formatPlan(p) }
   })
+
+  // 承認は質問への回答から記録する。質問文が RSM-ID を含むものだけが対象で、選ばれた回答だけを見る
+  on('tool.call', { tool: /^AskUserQuestion$/ }, async ($, e, next) => {
+    const qs = Array.isArray((e as any).questions) ? ((e as any).questions as { question?: unknown; header?: unknown }[]) : []
+    if (!qs.some(q => idsIn(String(q?.question ?? '')).length > 0)) return next(e)
+    const now = await $.clock.now()
+    const r = await next(e)
+    const answers = (r.result as { answers?: Record<string, unknown> } | undefined)?.answers
+    // 質問ごとに、その質問自身への肯定の回答だけを承認にする。何も承認されなければ以前の承認も消す
+    const text = approvedQuestionText(qs, answers)
+    approval = text === '' ? undefined : { text, at: now }
+    return r
+  }).catch(($, e, next) => next(e))
+
+  on('tool.call', { tool: EXEC_TOOL }, async ($, e) => {
+    const i = e as unknown as { plan_id?: unknown; paths?: unknown; dry_run?: unknown }
+    if (typeof i.plan_id !== 'string' || !PLAN_ID.test(i.plan_id)) return { deny: 'plan_id is invalid' }
+    const record = plans.get(i.plan_id)
+    if (!record) return { deny: '計画が見つからない (このセッションで plan_preservation を実行すること)' }
+    if (!Array.isArray(i.paths) || i.paths.length === 0 || i.paths.length > 20 || !i.paths.every(isAbsolutePath)) return { deny: 'paths must be 1-20 absolute canonical paths' }
+    const paths = [...new Set(i.paths as string[])]
+    const items = paths.map(p => record.items.find(x => x.path === p))
+    if (items.some(x => x === undefined || x.status !== 'PLANNED')) return { deny: '計画に無い、または PLANNED でない対象が含まれている' }
+    const ctx = ctxOf($, readConfig(undefined))
+    if (i.dry_run !== false) {
+      const lines = ['# 実行の Dry Run (何も変更していない)']
+      for (const it of items as NonNullable<typeof items[number]>[]) {
+        const problems = await revalidate(ctx, record, it)
+        lines.push(`${it.path} [${it.operation}]`, problems.length === 0 ? '  再検査: 問題なし。承認を得れば実行できる' : `  再検査: ${problems.join(' / ')}`)
+      }
+      lines.push('実行するには、AskUserQuestion で plan_id と全対象パスを復唱して承認を取り、dry_run:false で再度呼ぶ。')
+      return { result: lines.join('\n') }
+    }
+    const why = approvalCovers(approval, await $.clock.now(), [i.plan_id], paths)
+    if (why) return { deny: why }
+    approval = undefined // 1 回で使い切る (失敗しても再利用させない)
+    const results: Outcome[] = []
+    for (const it of items as NonNullable<typeof items[number]>[]) results.push(await executeItem(ctx, record, it, record.items.indexOf(it)))
+    return { result: results.map(fmtOutcome).join('\n') }
+  }).catch(() => ({ deny: '実行フックが失敗したため中止した。状態を確認すること' }))
+
+  on('tool.call', { tool: PURGE_TOOL }, async ($, e) => {
+    const i = e as unknown as { repo?: unknown; op_id?: unknown; dry_run?: unknown }
+    if (!isAbsolutePath(i.repo) || typeof i.op_id !== 'string' || !OP_ID.test(i.op_id)) return { deny: 'repo or op_id is invalid' }
+    if (i.dry_run !== false) return { result: `Dry Run: ${i.op_id} を削除する。実行するには AskUserQuestion で op_id と repo (${i.repo}) を復唱して承認を取り、dry_run:false で呼ぶ。` }
+    const why = approvalCovers(approval, await $.clock.now(), [i.op_id], [i.repo])
+    if (why) return { deny: why }
+    approval = undefined
+    return { result: fmtOutcome(await purge(ctxOf($, readConfig(undefined)), i.repo, i.op_id)) }
+  }).catch(() => ({ deny: '削除フックが失敗したため中止した。状態を確認すること' }))
+
+  on('tool.call', { tool: RESTORE_TOOL }, async ($, e) => {
+    const i = e as unknown as { repo?: unknown; op_id?: unknown }
+    if (!isAbsolutePath(i.repo) || typeof i.op_id !== 'string' || !OP_ID.test(i.op_id)) return { deny: 'repo or op_id is invalid' }
+    return { result: fmtOutcome(await restore(ctxOf($, readConfig(undefined)), i.repo, i.op_id)) }
+  }).catch(() => ({ deny: '復元フックが失敗したため中止した' }))
 
   on('command.run', { command: 'repo-storage' }, async $ => {
     const cfg = readConfig(undefined)
