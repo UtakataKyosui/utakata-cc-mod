@@ -118,9 +118,39 @@ export const parseDu = (out: string): number | undefined => {
 /** 再生成できる可能性のある生成物のディレクトリ名。名前だけでは安全と断定しない。 */
 export const CACHE_NAMES = ['node_modules', 'target', '.next', 'dist', 'build', '.venv', '__pycache__', '.gradle'] as const
 
+/** 生成物ごとの、再生成の根拠になるプロジェクト設定ファイルと再生成方法。dist / build は根拠を持たない。 */
+export const CACHE_RULES: Record<string, { markers: string[]; regen: string } | undefined> = {
+  node_modules: { markers: ['package.json'], regen: 'パッケージマネージャの install (lockfile の有無を確認)' },
+  target: { markers: ['Cargo.toml', 'pom.xml'], regen: 'cargo build / mvn compile' },
+  '.next': { markers: ['package.json'], regen: 'next build' },
+  '.venv': { markers: ['pyproject.toml', 'requirements.txt'], regen: '仮想環境の再作成と依存の再インストール' },
+  '.gradle': { markers: ['build.gradle', 'build.gradle.kts', 'settings.gradle'], regen: 'gradle の再実行' },
+  __pycache__: { markers: [], regen: 'Python が自動生成' },
+}
+export const CACHE_MARKERS = [...new Set(Object.values(CACHE_RULES).flatMap(r => r?.markers ?? []))]
+
+export type CacheClass = 'REGENERABLE_LIKELY' | 'UNKNOWN_REGEN' | 'PROTECTED_DATA'
+
+/**
+ * 生成物候補の分類。git の追跡対象は PROTECTED_DATA。gitignore 済みで、設定ファイルという根拠があるときだけ
+ * REGENERABLE_LIKELY (「再生成できそう」であって削除許可ではない)。それ以外・判定不能は UNKNOWN_REGEN。
+ */
+export const classifyCache = (
+  name: string, markersPresent: string[], ignored: boolean | undefined, tracked: boolean | undefined,
+): { class: CacheClass; regen: string | undefined; evidence: string[] } => {
+  const rule = CACHE_RULES[name]
+  if (tracked === true) return { class: 'PROTECTED_DATA', regen: undefined, evidence: ['git の追跡対象のファイルを含む'] }
+  if (tracked === undefined || ignored === undefined) return { class: 'UNKNOWN_REGEN', regen: rule?.regen, evidence: ['git での追跡・ignore の判定に失敗'] }
+  if (!ignored) return { class: 'UNKNOWN_REGEN', regen: rule?.regen, evidence: ['gitignore されていない (固有のデータの可能性)'] }
+  if (!rule) return { class: 'UNKNOWN_REGEN', regen: undefined, evidence: [`${name} は名前だけでは再生成可能と判断できない`] }
+  const found = rule.markers.filter(m => markersPresent.includes(m))
+  if (rule.markers.length > 0 && found.length === 0) return { class: 'UNKNOWN_REGEN', regen: rule.regen, evidence: [`根拠となる設定ファイル (${rule.markers.join(' / ')}) が無い`] }
+  return { class: 'REGENERABLE_LIKELY', regen: rule.regen, evidence: ['gitignore 済み', ...(found.length > 0 ? [`設定ファイル: ${found.join(', ')}`] : [])] }
+}
+
 export type Category = 'PROTECTED' | 'DIRTY' | 'UNKNOWN' | 'CANDIDATE'
 export type Reason =
-  | 'CURRENT_DIR' | 'EXTRA_WORKTREE' | 'ACTIVE_WORKTREE' | 'BARE_REPO' | 'SUBMODULE'
+  | 'CURRENT_DIR' | 'LINKED_WORKTREE' | 'EXTRA_WORKTREE' | 'ACTIVE_WORKTREE' | 'BARE_REPO' | 'SUBMODULE'
   | 'UNCOMMITTED' | 'UNTRACKED' | 'UNPUSHED' | 'NO_UPSTREAM' | 'STASH' | 'DETACHED_HEAD'
   | 'GIT_FAILED' | 'NO_COMMITS' | 'REMOTE_UNVERIFIED' | 'STALE' | 'RECENT'
 
@@ -131,6 +161,8 @@ export type Observation = {
   activeWorktree: boolean
   failed: boolean
   bare: boolean
+  /** git-dir が common-dir と異なる = 別リポジトリの linked worktree */
+  linkedWorktree: boolean
   hasSubmodules: boolean
   extraWorktrees: number
   status: GitStatus | undefined
@@ -147,6 +179,7 @@ export const classify = (o: Observation, nowEpoch: number, staleDays: number): V
   if (o.currentDir) protectedR.push('CURRENT_DIR')
   if (o.activeWorktree) protectedR.push('ACTIVE_WORKTREE')
   if (o.bare) protectedR.push('BARE_REPO')
+  if (o.linkedWorktree) protectedR.push('LINKED_WORKTREE')
   if (o.hasSubmodules) protectedR.push('SUBMODULE')
   if (o.extraWorktrees > 0) protectedR.push('EXTRA_WORKTREE')
   if (protectedR.length > 0) return { category: 'PROTECTED', reasons: protectedR }
@@ -177,10 +210,15 @@ export const dedupePaths = (paths: string[]): string[] => [...new Set(paths.map(
 export const parentOf = (path: string, all: string[]): string | undefined =>
   all.filter(p => p !== path && path.startsWith(`${p}/`)).sort((a, b) => b.length - a.length)[0]
 
-export type CacheDir = { name: string; path: string; bytes: number | undefined; ignored: boolean | undefined }
+export type CacheDir = {
+  name: string; path: string; bytes: number | undefined; ignored: boolean | undefined
+  tracked: boolean | undefined; class: CacheClass; regen: string | undefined; evidence: string[]
+}
 
 export type RepoReport = {
   path: string
+  /** 実体パス (symlink 解決後)。重複排除に使う */
+  commonDir?: string | undefined
   source: 'ghq' | 'scan-root'
   verdict: Verdict
   usageBytes: number | undefined
@@ -241,7 +279,7 @@ export const formatReport = (r: Report, topN: number, by: 'size' | 'activity' | 
         `${x.apparentBytes === undefined ? '' : ` / 見かけ ${humanBytes(x.apparentBytes)}`} | 最終コミット ${x.lastCommit ?? '不明'}`,
     )
     if (x.nestedIn) lines.push(`  nested: ${sanitize(x.nestedIn)} 配下 (容量は親に含まれる可能性があり、合算しない)`)
-    for (const c of x.caches) lines.push(`  生成物候補: ${c.name} ${humanBytes(c.bytes)}${c.ignored === false ? ' (gitignore されていない)' : c.ignored === undefined ? ' (ignore 判定不明)' : ''}`)
+    for (const c of x.caches) lines.push(`  生成物候補: ${c.name} ${humanBytes(c.bytes)} [${c.class}] ${c.evidence.join('; ')}${c.regen ? ` | 再生成: ${c.regen}` : ''} (リポジトリの使用量に含まれる)`)
   }
   lines.push('', '容量は重複 (親子・hardlink・symlink) を除けていない可能性があるため、合計を「回収可能量」として扱わない。')
   return lines.join('\n')

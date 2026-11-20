@@ -5,7 +5,7 @@ import {
 
 const NOW = 1_800_000_000
 const clean: Observation = {
-  path: '/r/a', currentDir: false, activeWorktree: false, failed: false, bare: false, hasSubmodules: false, extraWorktrees: 0,
+  path: '/r/a', currentDir: false, activeWorktree: false, failed: false, bare: false, linkedWorktree: false, hasSubmodules: false, extraWorktrees: 0,
   status: { dirty: 0, untracked: 0, ahead: 0, behind: 0, hasUpstream: true, detached: false },
   branches: { noUpstream: [], ahead: [] }, stash: 0, lastCommitEpoch: NOW - 400 * 86400,
 }
@@ -54,10 +54,11 @@ test('設定・ネスト・無害化・報告', () => {
   const text = formatReport({
     schema: 'repo-storage-report-1', readOnly: true, generatedAt: '', degraded: ['gdu 未導入'], totalDiscovered: 1, analyzed: 1, skipped: 0,
     counts: { PROTECTED: 0, DIRTY: 0, UNKNOWN: 0, CANDIDATE: 1 },
-    repos: [{ path: '/r/a', source: 'ghq', verdict: classify(clean, NOW, 180), usageBytes: 2048, apparentBytes: undefined, sizeSource: 'du', lastCommit: '2025-01-01', branchesNoUpstream: 0, stash: 0, extraWorktrees: 0, nestedIn: undefined, caches: [{ name: 'node_modules', path: '/r/a/node_modules', bytes: 1024, ignored: false }] }],
+    repos: [{ path: '/r/a', source: 'ghq', verdict: classify(clean, NOW, 180), usageBytes: 2048, apparentBytes: undefined, sizeSource: 'du', lastCommit: '2025-01-01', branchesNoUpstream: 0, stash: 0, extraWorktrees: 0, nestedIn: undefined, caches: [{ name: 'node_modules', path: '/r/a/node_modules', bytes: 1024, ignored: false, tracked: false, class: 'UNKNOWN_REGEN', regen: undefined, evidence: ['gitignore されていない (固有のデータの可能性)'] }] }],
   }, 5)
   expect(text).toContain('削除許可ではない')
   expect(text).toContain('gitignore されていない')
+  expect(text).toContain('UNKNOWN_REGEN')
   expect(text).toContain('回収可能量')
 })
 
@@ -151,7 +152,7 @@ const GIT_OK = {
   'git stash': () => ({ exitCode: 0, stdout: '' }),
   'git log': () => ({ exitCode: 0, stdout: '1500000000\n' }),
   'git ls-files': () => ({ exitCode: 0, stdout: '' }),
-  'git rev-parse': () => ({ exitCode: 0, stdout: 'false\n' }),
+  'git rev-parse': (a: string[]) => ({ exitCode: 0, stdout: `false\n${a[2]}/.git\n${a[2]}/.git\n` }),
   'git check-ignore': () => ({ exitCode: 0, stdout: '' }),
   find: (a: string[]) => ({ exitCode: 0, stdout: a.includes('-print0') && a.includes('--') ? '' : '' }),
   du: () => ({ exitCode: 0, stdout: '8\t/w\n' }),
@@ -212,4 +213,101 @@ test('レビュー指摘: submodule 確認の失敗・detached HEAD・読み取�
   const $ = fake({ ...GIT_OK, find: () => ({ exitCode: 0, stdout: '/w/a/.git\0' }), 'git ls-files': () => ({ exitCode: 128, stdout: '' }) })
   const r = await scan($, readConfig({ scanRoots: '/w' }))
   expect(r.repos[0]!.verdict).toEqual({ category: 'UNKNOWN', reasons: ['GIT_FAILED'] })
+})
+
+import { CACHE_NAMES, classifyCache } from './policy'
+
+test('生成物の分類: 追跡対象・未 ignore・根拠なしは再生成可能扱いにしない (#36)', () => {
+  expect(classifyCache('node_modules', ['package.json'], true, false)).toMatchObject({ class: 'REGENERABLE_LIKELY' })
+  expect(classifyCache('node_modules', ['package.json'], true, true).class).toBe('PROTECTED_DATA')
+  expect(classifyCache('node_modules', ['package.json'], false, false).class).toBe('UNKNOWN_REGEN')
+  expect(classifyCache('node_modules', [], true, false).class).toBe('UNKNOWN_REGEN')
+  expect(classifyCache('dist', ['package.json'], true, false).class).toBe('UNKNOWN_REGEN')
+  expect(classifyCache('build', [], true, false).regen).toBeUndefined()
+  expect(classifyCache('target', ['Cargo.toml'], undefined, false).class).toBe('UNKNOWN_REGEN')
+  expect(classifyCache('target', ['Cargo.toml'], true, undefined).class).toBe('UNKNOWN_REGEN')
+  expect(classifyCache('__pycache__', [], true, false).class).toBe('REGENERABLE_LIKELY')
+  expect(CACHE_NAMES).toContain('dist')
+})
+
+test('scan: linked worktree は保護し、同一 common-dir の二重登録 (symlink 経由) は 1 件にまとめる (#32)', async () => {
+  const $ = fake({
+    ...GIT_OK,
+    find: () => ({ exitCode: 0, stdout: '/w/main/.git\0/w/link-to-main/.git\0/w/wt/.git\0' }),
+    'git rev-parse': (a: string[]) => {
+      const p = a[2]!
+      if (p === '/w/wt') return { exitCode: 0, stdout: 'false\n/w/main/.git/worktrees/wt\n/w/main/.git\n' }
+      return { exitCode: 0, stdout: 'false\n/w/main/.git\n/w/main/.git\n' }
+    },
+  })
+  const r = await scan($, readConfig({ scanRoots: ['/w'] }))
+  expect(r.repos.map(x => x.path)).toEqual(['/w/main', '/w/wt'])
+  expect(r.repos[1]!.verdict).toEqual({ category: 'PROTECTED', reasons: ['LINKED_WORKTREE'] })
+  expect(r.degraded.join('\n')).toContain('重複を除外: /w/link-to-main')
+})
+
+test('scan: rev-parse が古い git などで 3 行返さないときは UNKNOWN', async () => {
+  const $ = fake({ ...GIT_OK, find: () => ({ exitCode: 0, stdout: '/w/a/.git\0' }), 'git rev-parse': () => ({ exitCode: 0, stdout: 'false\n' }) })
+  expect((await scan($, readConfig({ scanRoots: ['/w'] }))).repos[0]!.verdict.category).toBe('UNKNOWN')
+})
+
+import { type Destination, formatPlan, planOne } from './plan'
+import { plan } from './register'
+
+const repoReport = (over: Partial<import('./policy').RepoReport> = {}) => ({
+  ...structuredClone(sample.repos[0]) as any, path: '/r/old', ...over,
+}) as import('./policy').RepoReport
+const dest = (over: Partial<Destination> = {}): Destination => ({ path: '/backup', exists: true, writable: true, fs: { mount: '/mnt/b' }, ...over })
+const cache = (class_: any, bytes = 100) => ({ name: 'node_modules', path: '/r/old/node_modules', bytes, ignored: true, tracked: false, class: class_, regen: 'npm install', evidence: [] })
+
+test('保全計画: 同一ファイルシステムへの退避は容量を回収しないと示し、別FSなら推定値を出す (#38)', () => {
+  const same = planOne(repoReport(), 'archive', dest({ fs: { mount: '/' } }), '/')
+  expect(same.status).toBe('PLANNED')
+  expect(same.estimatedReclaimBytes).toBe(0)
+  expect(same.reclaimNote).toContain('空き容量は増えない')
+  const other = planOne(repoReport({ usageBytes: 5000 }), 'relocate', dest(), '/')
+  expect(other.estimatedReclaimBytes).toBe(5000)
+  expect(other.reclaimNote).toContain('この計画では削除しない')
+  expect(planOne(repoReport(), 'archive', dest({ fs: { mount: undefined } }), '/').estimatedReclaimBytes).toBeUndefined()
+})
+
+test('保全計画: 復元検証できない退避先・CANDIDATE 以外・状態不明は除外し、手順は実行しない', () => {
+  expect(planOne(repoReport(), 'archive', dest({ exists: false, writable: false }), '/').excluded).toEqual(expect.arrayContaining(['DESTINATION_UNUSABLE', 'RESTORE_UNCHECKABLE']))
+  expect(planOne(repoReport(), 'archive', undefined, '/').excluded).toContain('NO_DESTINATION')
+  const dirty = repoReport({ verdict: { category: 'DIRTY', reasons: ['STASH'] } })
+  expect(planOne(dirty, 'relocate', dest(), '/').excluded).toContain('NOT_CANDIDATE')
+  const unk = repoReport({ verdict: { category: 'UNKNOWN', reasons: ['GIT_FAILED'] } })
+  expect(planOne(unk, 'cache-only', undefined, '/').excluded).toContain('STATE_UNKNOWN')
+  const cur = repoReport({ verdict: { category: 'PROTECTED', reasons: ['CURRENT_DIR'] }, caches: [cache('REGENERABLE_LIKELY') as any] })
+  expect(planOne(cur, 'cache-only', undefined, '/').excluded).toContain('CURRENT_DIR')
+  const item = planOne(repoReport(), 'archive', dest(), '/')
+  expect(item.steps[0]![0]).toContain('dry-run')
+  expect(item.restoreRehearsal.join('\n')).toContain('元を残し、操作を拒否')
+  expect(item.requiresBeforeExecution.join('')).toContain('明示承認')
+})
+
+test('保全計画: cache-only は再生成できそうな生成物だけを対象にする', () => {
+  const r = repoReport({ caches: [cache('REGENERABLE_LIKELY', 300) as any, cache('UNKNOWN_REGEN', 900) as any, cache('PROTECTED_DATA', 50) as any] })
+  const i = planOne(r, 'cache-only', undefined, '/')
+  expect(i.status).toBe('PLANNED')
+  expect(i.estimatedReclaimBytes).toBe(300)
+  expect(planOne(repoReport({ caches: [cache('UNKNOWN_REGEN') as any] }), 'cache-only', undefined, '/').excluded).toContain('NO_REGENERABLE_CACHE')
+  expect(formatPlan({ schema: 'repo-preservation-plan-draft-1', dryRun: true, items: [i], degraded: [] })).toContain('実行許可ではない')
+})
+
+test('plan: 計画の作成で読み取り系以外のコマンドを実行しない', async () => {
+  const seen: string[][] = []
+  const $ = fake({
+    ...GIT_OK,
+    df: () => ({ exitCode: 0, stdout: 'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/x 100 1 99 1% /mnt/x\n' }),
+    test: () => ({ exitCode: 0, stdout: '' }),
+  })
+  const orig = $.process.run
+  $.process.run = async (argv: string[]) => { seen.push(argv); return orig(argv) }
+  const p = await plan($, readConfig(undefined), { paths: ['/w/日本語 repo'], operation: 'archive', destination: '/backup' })
+  expect(p.dryRun).toBe(true)
+  expect(p.items[0]!.sameFilesystem).toBe(true)
+  const allowed = new Set(['git', 'find', 'du', 'pwd', 'df', 'test', 'ghq', 'gdu'])
+  for (const argv of seen) expect(allowed.has(argv[0]!)).toBe(true)
+  expect(seen.some(a => a[0] === 'git' && ['bundle', 'clone', 'fetch', 'push'].includes(a[3] ?? ''))).toBe(false)
 })

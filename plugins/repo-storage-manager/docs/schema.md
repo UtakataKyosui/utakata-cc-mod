@@ -14,7 +14,7 @@
 | `repos[].verdict` | `category` と `reasons[]` (理由コード) |
 | `repos[].usageBytes` / `apparentBytes` | 使用量と見かけサイズ。不明は省略 (0 にしない)。`sizeSource` が `gdu` / `du` / `unavailable` |
 | `repos[].nestedIn` | 別リポジトリの配下にあるときの親。容量は親に含まれ得るため合算しない |
-| `repos[].caches[]` | リポジトリ直下の生成物ディレクトリ候補。`ignored` が `false` / 不明のときは特に注意 |
+| `repos[].caches[]` | 生成物ディレクトリ候補。`class` (`REGENERABLE_LIKELY` / `UNKNOWN_REGEN` / `PROTECTED_DATA`)、`evidence`、`regen`、`ignored`、`tracked` を持つ |
 
 「回収可能量」「削除可」を表すフィールドは意図的に持たない。
 
@@ -22,7 +22,7 @@
 
 評価は上から順で、最初に当たったものが結果になる。
 
-1. `PROTECTED`: 現在の作業ディレクトリを含む、bare、submodule あり、追加 worktree あり
+1. `PROTECTED`: 現在の作業ディレクトリを含む、linked worktree、bare、submodule あり、追加 worktree あり
 2. `UNKNOWN`: git のコマンド (submodule の確認を含む) が 1 つでも失敗、または stash 数が取れない
 3. `DIRTY`: 未コミット、未追跡、未 push、upstream 無しのブランチ、stash
 4. `UNKNOWN`: コミットが無い
@@ -34,3 +34,7 @@
 ## 状態遷移 (1 回のスキャン内)
 
 発見 → 観測 (git / サイズ) → 分類 → 報告。観測に失敗した項目は `UNKNOWN` に落ち、`CANDIDATE` へは決して上がらない。
+
+## 保全計画 `repo-preservation-plan-draft-1`
+
+`plan_preservation` の出力。`dryRun` は常に `true`。各 `items[]` は `operation` (`cache-only` / `archive` / `relocate`)、`status` (`PLANNED` / `EXCLUDED`)、`excluded[]` (除外理由コード)、`estimatedReclaimBytes` (推定。実測ではない)、`sameFilesystem`、`steps` (表示のみ)、`restoreRehearsal`、`manifest` (案)、`requiresBeforeExecution`、`unconfirmed` を持つ。`PLANNED` は「承認を求める準備ができた」という意味で、実行許可ではない。名前に `draft` を付けているのは、実機での復元リハーサルが確認できるまで互換性を保証しないため。

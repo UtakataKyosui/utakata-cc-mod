@@ -19,7 +19,7 @@ export const reportSample = {
       "branchesNoUpstream": 0,
       "stash": 0,
       "extraWorktrees": 0,
-      "caches": [{ "name": "node_modules", "path": "/home/me/ghq/github.com/me/old/node_modules", "bytes": 52428800, "ignored": true }]
+      "caches": [{ "name": "node_modules", "path": "/home/me/ghq/github.com/me/old/node_modules", "bytes": 52428800, "ignored": true, "tracked": false, "class": "REGENERABLE_LIKELY", "regen": "パッケージマネージャの install (lockfile の有無を確認)", "evidence": ["gitignore 済み", "設定ファイル: package.json"] }]
     }
   ]
 } as const
