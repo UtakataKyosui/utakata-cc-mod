@@ -11,7 +11,8 @@
 
 - リポジトリごとに path、使用量、見かけサイズ (gdu 利用時のみ)、最終コミット日、分類と理由コード、nested の親、生成物候補を出す。
 - 分類は `PROTECTED` / `DIRTY` / `UNKNOWN` / `CANDIDATE`。`CANDIDATE` は「古く、ローカル検査を通った」という意味で、**削除許可ではない**。リモートの到達性は検証しないため、理由に `REMOTE_UNVERIFIED` を残す。
-- JSON のスキーマは `repo-storage-report-1` (`readOnly: true`、`degraded`、`counts`、`repos[]`)。
+- JSON のスキーマは `repo-storage-report-1` (`readOnly: true`、`degraded`、`counts`、`repos[]`)。仕様と判定順は [docs/schema.md](docs/schema.md)。
+- ツールの引数: `sort`、`format`、`category` (分類で絞る)、`min_bytes`、`stale_only`。
 - 容量の合計を「回収可能量」とは表示しない。親子・hardlink・symlink の重複を除けないため。
 
 ### 理由コード
@@ -32,7 +33,7 @@ git のコマンドが 1 つでも失敗したら `UNKNOWN` にし、安全と�
 | git | 必須。status / worktree / stash / ブランチの upstream / 最終コミットの一次確認。最終判定はこのプラグインの保守的なポリシーで行う |
 | ghq | あれば `ghq list -p` で探索。なければ `scanRoots` にフォールバックし、縮退を報告する |
 | gdu | あれば `-o -` の ncdu 互換 JSON から使用量と見かけサイズを取る。なければ `du -sk -x` (使用量のみ) |
-| reposcan / gst / ward | **MVP では呼び出さない**。出力契約をこの環境で実査できていないため、推測で実装していない。#29 の調査後に別 PR で追加する |
+| reposcan / gst / ward | **呼び出さない**。reposcan は JSON の契約が未確認で匿名統計を既定で送る、gst は機械可読な出力が無く書き込み系を含む、ward は `--execute` を持つため #38 で再評価。詳細は [docs/cli-survey.md](docs/cli-survey.md) |
 
 子プロセスは argv 配列で実行し (シェル結合なし)、タイムアウトを付ける。外部出力の制御文字は表示前に無害化する。
 
@@ -63,6 +64,6 @@ brew install ghq gdu
 
 ## 実装と検証
 
-純粋ロジックは [hooks/policy.ts](hooks/policy.ts)、プロセス実行は [hooks/register.ts](hooks/register.ts)、テストは [hooks/register.test.ts](hooks/register.test.ts)。検証は `claude plugin validate` / `claude plugin test` で行う。
+純粋ロジックは [hooks/policy.ts](hooks/policy.ts)、子プロセス基盤 (argv 検証・出力上限・バージョン検査・JSON 検証) は [hooks/runner.ts](hooks/runner.ts)、スキャン本体は [hooks/register.ts](hooks/register.ts)、テストは [hooks/register.test.ts](hooks/register.test.ts)。検証は `claude plugin validate` / `claude plugin test` で行う。
 
 [プラグイン一覧へ戻る](../../README.md)

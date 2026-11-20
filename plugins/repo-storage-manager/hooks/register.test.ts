@@ -58,3 +58,146 @@ test('設定・ネスト・無害化・報告', () => {
   expect(text).toContain('gitignore されていない')
   expect(text).toContain('回収可能量')
 })
+
+import { gduExportNew as gduNew } from '../fixtures/gdu-export-new'
+import { gduExportOld as gduOld } from '../fixtures/gdu-export-old'
+import { reportSample as sample } from '../fixtures/report-sample'
+import { EXIT, compareVersions, createRun, parseJson, parseVersion, probe, validArgv } from './runner'
+import { CATEGORIES, REASONS, SCHEMA_VERSION } from './types'
+import { filterReport } from './policy'
+
+
+test('ncdu: 新旧どちらの gdu 形式でも二重計上しない', () => {
+  expect(parseNcdu(JSON.stringify(gduNew))).toEqual({ apparent: 4096 + 10 + 4096 + 4, usage: 4096 + 4096 + 4096 + 0 })
+  expect(parseNcdu(JSON.stringify(gduOld))).toEqual({ apparent: 14, usage: 8192 })
+})
+
+test('runner: 不正な argv・例外・出力上限・終了コードは fail-closed', async () => {
+  expect(validArgv(['git', 'status'])).toBe(true)
+  expect(validArgv([])).toBe(false)
+  expect(validArgv(['a\0b'])).toBe(false)
+  expect(validArgv('git status')).toBe(false)
+  const ok = createRun(async () => ({ exitCode: 0, stdout: 'x', stderr: '' }))
+  expect((await ok(['git'])).stdout).toBe('x')
+  expect((await ok(['a\0'])).exitCode).toBe(EXIT.INVALID_ARGV)
+  const boom = createRun(async () => { throw new Error('ENOENT') })
+  expect((await boom(['nope'])).exitCode).toBe(EXIT.SPAWN_FAILED)
+  const big = createRun(async () => ({ exitCode: 0, stdout: 'x'.repeat(11), stderr: '' }), 10)
+  expect(await big(['git'])).toMatchObject({ exitCode: EXIT.OUTPUT_TOO_LARGE, stdout: '' })
+  const failing = createRun(async () => ({ exitCode: 2, stdout: 'partial', stderr: 'e' }))
+  expect((await failing(['git'])).exitCode).toBe(2)
+})
+
+test('runner: JSON の検証とバージョン検査', async () => {
+  const isArr = (v: unknown): v is unknown[] => Array.isArray(v)
+  expect(parseJson('[1]', isArr)).toEqual([1])
+  expect(parseJson('{"a":1}', isArr)).toBeUndefined()
+  expect(parseJson('{broken', isArr)).toBeUndefined()
+  expect(parseVersion('gdu version v5.31.0 built')).toEqual([5, 31, 0])
+  expect(parseVersion('no digits')).toBeUndefined()
+  expect(compareVersions([1, 2, 0], [1, 10, 0])).toBeLessThan(0)
+  const run = (r: { exitCode: number; stdout: string }) => createRun(async () => ({ ...r, stderr: '' }))
+  expect(await probe(run({ exitCode: 0, stdout: 'v1.2.3' }), ['x', '--version'], [1, 0, 0])).toEqual({ state: 'ok', version: [1, 2, 3] })
+  expect((await probe(run({ exitCode: 0, stdout: 'v0.9.0' }), ['x'], [1, 0, 0])).state).toBe('too-old')
+  expect((await probe(run({ exitCode: 0, stdout: 'hello' }), ['x'])).state).toBe('unparseable')
+  expect((await probe(run({ exitCode: 1, stdout: '' }), ['x'])).state).toBe('failed')
+  expect((await probe(run({ exitCode: 127, stdout: '' }), ['x'])).state).toBe('missing')
+  expect((await probe(createRun(async () => { throw new Error('x') }), ['x'])).state).toBe('missing')
+})
+
+test('スキーマ契約: サンプル JSON が型の語彙と一致し、削除許可を示す語を持たない', () => {
+  const s = structuredClone(sample) as any
+  expect(s.schema).toBe(SCHEMA_VERSION)
+  expect(s.readOnly).toBe(true)
+  for (const r of s.repos) {
+    expect(CATEGORIES).toContain(r.verdict.category)
+    r.verdict.reasons.forEach((x: string) => expect(REASONS).toContain(x))
+  }
+  expect(Object.keys(s.counts).sort()).toEqual([...CATEGORIES].sort())
+  expect(JSON.stringify(s)).not.toMatch(/deletable|safeToDelete|reclaimable/i)
+})
+
+test('絞り込み: 分類・サイズ・古さ。使用量不明は落とさない', () => {
+  const base = structuredClone(sample) as any
+  const mk = (path: string, category: string, reasons: string[], usageBytes?: number) => ({ ...base.repos[0], path, verdict: { category, reasons }, usageBytes })
+  const r = { ...base, repos: [mk('/a', 'DIRTY', ['STASH'], 10), mk('/b', 'CANDIDATE', ['STALE'], 100), mk('/c', 'UNKNOWN', ['GIT_FAILED'], undefined)] }
+  expect(filterReport(r, { category: 'DIRTY' }).repos.map((x: { path: string }) => x.path)).toEqual(['/a'])
+  expect(filterReport(r, { min_bytes: 50 }).repos.map((x: { path: string }) => x.path)).toEqual(['/b', '/c'])
+  expect(filterReport(r, { stale_only: true }).repos.map((x: { path: string }) => x.path)).toEqual(['/b'])
+  expect(filterReport(r, {})).toBe(r)
+})
+
+import { scan } from './register'
+
+/** コマンドの先頭語ごとに応答を返す偽の $.process.run。実機の CLI なしで scan を検証する。 */
+const fake = (handlers: Record<string, (argv: string[]) => { exitCode: number; stdout: string; stderr?: string }>) => ({
+  process: {
+    run: async (argv: string[]) => {
+      const key = argv[0] === 'git' ? `git ${argv[3] ?? ''}` : argv[0]!
+      const h = handlers[key] ?? handlers[argv[0]!]
+      if (!h) throw new Error(`ENOENT ${key}`)
+      const r = h(argv)
+      return { stderr: '', ...r }
+    },
+  },
+})
+
+const GIT_OK = {
+  'git worktree': () => ({ exitCode: 0, stdout: 'worktree /w/日本語 repo\nbranch refs/heads/main\n' }),
+  'git status': () => ({ exitCode: 0, stdout: '# branch.upstream o/m\n# branch.ab +0 -0\n' }),
+  'git for-each-ref': () => ({ exitCode: 0, stdout: 'main\to/m\t\n' }),
+  'git stash': () => ({ exitCode: 0, stdout: '' }),
+  'git log': () => ({ exitCode: 0, stdout: '1500000000\n' }),
+  'git ls-files': () => ({ exitCode: 0, stdout: '' }),
+  'git rev-parse': () => ({ exitCode: 0, stdout: 'false\n' }),
+  'git check-ignore': () => ({ exitCode: 0, stdout: '' }),
+  find: (a: string[]) => ({ exitCode: 0, stdout: a.includes('-print0') && a.includes('--') ? '' : '' }),
+  du: () => ({ exitCode: 0, stdout: '8\t/w\n' }),
+  pwd: () => ({ exitCode: 0, stdout: '/elsewhere\n' }),
+}
+
+test('scan: ghq も gdu も無いとき scanRoots にフォールバックし、縮退を報告する', async () => {
+  const $ = fake({ ...GIT_OK, find: () => ({ exitCode: 0, stdout: '/w/日本語 repo/.git\0' }) })
+  const r = await scan($, readConfig({ scanRoots: '/w' }))
+  expect(r.readOnly).toBe(true)
+  expect(r.repos.map(x => x.path)).toEqual(['/w/日本語 repo'])
+  expect(r.repos[0]!.verdict.category).toBe('CANDIDATE')
+  expect(r.repos[0]!.sizeSource).toBe('du')
+  expect(r.degraded.join('\n')).toContain('ghq 未導入')
+  expect(r.degraded.join('\n')).toContain('gdu 未導入')
+})
+
+test('scan: git が失敗・タイムアウトしたリポジトリは UNKNOWN、他は継続する', async () => {
+  const $ = fake({
+    ...GIT_OK,
+    find: () => ({ exitCode: 0, stdout: '/w/a/.git\0/w/b/.git\0' }),
+    'git status': (a: string[]) => (a[2] === '/w/a' ? { exitCode: 128, stdout: '' } : { exitCode: 0, stdout: '# branch.upstream o/m\n' }),
+  })
+  const r = await scan($, readConfig({ scanRoots: '/w' }))
+  const by = Object.fromEntries(r.repos.map(x => [x.path, x.verdict]))
+  expect(by['/w/a']).toEqual({ category: 'UNKNOWN', reasons: ['GIT_FAILED'] })
+  expect(by['/w/b']!.category).toBe('CANDIDATE')
+})
+
+test('scan: 現在の作業ディレクトリ・追加 worktree・nested は保護または親を示し、読み取り以外のコマンドを実行しない', async () => {
+  const seen: string[][] = []
+  const $ = fake({
+    ...GIT_OK,
+    find: () => ({ exitCode: 0, stdout: '/w/p/.git\0/w/p/inner/.git\0' }),
+    pwd: () => ({ exitCode: 0, stdout: '/w/p/inner/src\n' }),
+    'git worktree': () => ({ exitCode: 0, stdout: 'worktree /w/p\nbranch refs/heads/main\n\nworktree /w/wt\nbranch refs/heads/x\n' }),
+  })
+  const orig = $.process.run
+  $.process.run = async (argv: string[]) => { seen.push(argv); return orig(argv) }
+  const r = await scan($, readConfig({ scanRoots: '/w' }))
+  const inner = r.repos.find(x => x.path === '/w/p/inner')!
+  expect(inner.verdict.reasons).toContain('CURRENT_DIR')
+  expect(inner.nestedIn).toBe('/w/p')
+  expect(r.repos.find(x => x.path === '/w/p')!.verdict.reasons).toContain('EXTRA_WORKTREE')
+  const banned = /^(rm|mv|cp|ln|chmod|chown)$|^(fetch|push|pull|clean|gc|prune|reset|checkout|worktree-remove)$/
+  for (const argv of seen) {
+    expect(argv[0]).not.toMatch(banned)
+    if (argv[0] === 'git') expect(argv[3]).not.toMatch(banned)
+    if (argv[0] === 'git' && argv[3] === 'worktree') expect(argv[4]).toBe('list')
+  }
+})

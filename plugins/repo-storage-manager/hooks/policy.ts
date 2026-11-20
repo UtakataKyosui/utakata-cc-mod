@@ -64,19 +64,35 @@ export const parseBranches = (out: string): LocalBranches => {
   return r
 }
 
-/** ncdu 互換 JSON (gdu -o) から見かけサイズと使用量を集計する。壊れた入力は undefined。 */
+/**
+ * ncdu 互換 JSON (gdu -o) から見かけサイズと使用量を集計する。壊れた入力は undefined。
+ * 新しい gdu はディレクトリの合計を gdu_asize / gdu_dsize に持ち、asize / dsize はそのエントリ自身の値になる。
+ * 古い gdu と ncdu はディレクトリの asize / dsize が配下を含む合計なので、二重計上を避けファイルだけを足す。
+ */
 export const parseNcdu = (text: string): { apparent: number; usage: number } | undefined => {
   try {
     const doc = JSON.parse(text)
     if (!Array.isArray(doc) || doc.length < 4 || !Array.isArray(doc[3])) return undefined
+    const isDir = (n: unknown): n is unknown[] => Array.isArray(n)
+    const head = (n: unknown[]) => (n[0] ?? {}) as Record<string, unknown>
+    let newFormat = false
+    const scan = (dir: unknown[]): void => {
+      if ('gdu_dsize' in head(dir) || 'gdu_asize' in head(dir)) newFormat = true
+      dir.slice(1).forEach(c => { if (isDir(c)) scan(c) })
+    }
+    scan(doc[3])
     let apparent = 0
     let usage = 0
-    const walk = (node: unknown): void => {
-      if (Array.isArray(node)) { node.forEach(walk); return }
-      if (node && typeof node === 'object') {
-        const o = node as { asize?: unknown; dsize?: unknown }
-        if (typeof o.asize === 'number') apparent += o.asize
-        if (typeof o.dsize === 'number') usage += o.dsize
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0)
+    const walk = (dir: unknown[]): void => {
+      if (newFormat) { apparent += num(head(dir).asize); usage += num(head(dir).dsize) }
+      for (const c of dir.slice(1)) {
+        if (isDir(c)) walk(c)
+        else if (c && typeof c === 'object') {
+          const o = c as Record<string, unknown>
+          apparent += num(o.asize)
+          usage += num(o.dsize)
+        }
       }
     }
     walk(doc[3])
@@ -220,4 +236,16 @@ export const formatReport = (r: Report, topN: number, by: 'size' | 'activity' | 
   }
   lines.push('', '容量は重複 (親子・hardlink・symlink) を除けていない可能性があるため、合計を「回収可能量」として扱わない。')
   return lines.join('\n')
+}
+
+export type ReportOptions = { sort?: 'size' | 'activity' | 'risk'; category?: Category; min_bytes?: number; stale_only?: boolean }
+
+/** 絞り込み。絞った結果でも counts / totalDiscovered は元のまま、`filtered` に残件数を足す。 */
+export const filterReport = (r: Report, o: ReportOptions): Report => {
+  const min = typeof o.min_bytes === 'number' && Number.isFinite(o.min_bytes) ? o.min_bytes : undefined
+  const repos = r.repos.filter(x =>
+    (o.category === undefined || x.verdict.category === o.category) &&
+    (min === undefined || x.usageBytes === undefined || x.usageBytes >= min) &&
+    (o.stale_only !== true || x.verdict.reasons.includes('STALE')))
+  return repos.length === r.repos.length ? r : { ...r, repos, degraded: [...r.degraded, `絞り込み後 ${repos.length} / ${r.repos.length} 件を表示`] }
 }

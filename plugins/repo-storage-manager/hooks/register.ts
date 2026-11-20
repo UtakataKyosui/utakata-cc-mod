@@ -1,24 +1,16 @@
 import type { Register } from 'claude-code'
 import {
-  CACHE_NAMES, type CacheDir, type Config, type Observation, type Report, type RepoReport, classify, dedupePaths, formatReport,
+  CACHE_NAMES, type CacheDir, type ReportOptions, filterReport, type Config, type Observation, type Report, type RepoReport, classify, dedupePaths, formatReport,
   parseBranches, parseDu, parseNcdu, parseStatus, parseWorktrees, parentOf, readConfig, sanitize,
 } from './policy'
+import { type Run, createRun, probe } from './runner'
 
 const TOOL = 'mcp__repo-storage-manager__scan_repos'
-const TIMEOUT = 30_000
 
-type Run = (argv: string[], timeoutMs?: number) => Promise<{ exitCode: number; stdout: string; stderr: string }>
+/** 読み取り専用のコマンドだけを argv 配列で実行する (runner.ts: 出力上限・例外の吸収・argv 検証)。 */
+const makeRun = ($: any): Run => createRun((argv, o) => $.process.run(argv, { timeoutMs: o.timeoutMs }))
 
-/** 読み取り専用のコマンドだけを argv 配列で実行する。失敗は exitCode -1 に畳む。 */
-const makeRun = ($: any): Run => async (argv, timeoutMs = TIMEOUT) => {
-  try {
-    return await $.process.run(argv, { timeoutMs })
-  } catch (err) {
-    return { exitCode: -1, stdout: '', stderr: String(err) }
-  }
-}
-
-const has = async (run: Run, name: string) => (await run(['sh', '-c', `command -v ${name}`])).exitCode === 0
+const has = async (run: Run, name: string) => (await probe(run, [name, '--version'])).state !== 'missing'
 
 async function discover(run: Run, cfg: Config, degraded: string[]): Promise<{ path: string; source: 'ghq' | 'scan-root' }[]> {
   const found: { path: string; source: 'ghq' | 'scan-root' }[] = []
@@ -133,6 +125,9 @@ export const register: Register = (on, options) => {
         properties: {
           sort: { type: 'string', enum: ['size', 'activity', 'risk'], description: '並び順 (既定 size)' },
           format: { type: 'string', enum: ['text', 'json'], description: '出力形式 (既定 text)' },
+          category: { type: 'string', enum: ['PROTECTED', 'DIRTY', 'UNKNOWN', 'CANDIDATE'], description: '分類で絞り込む' },
+          min_bytes: { type: 'number', description: '使用量がこの bytes 以上のリポジトリだけ (使用量不明は除外しない)' },
+          stale_only: { type: 'boolean', description: 'true なら STALE の理由を持つものだけ' },
         },
       },
     })
@@ -143,8 +138,8 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', { tool: TOOL }, async ($, e) => {
-    const input = e as unknown as { sort?: 'size' | 'activity' | 'risk'; format?: 'text' | 'json' }
-    const report = await scan($, cfg)
+    const input = e as unknown as ReportOptions & { format?: 'text' | 'json' }
+    const report = filterReport(await scan($, cfg), input)
     return { result: input.format === 'json' ? JSON.stringify(report) : formatReport(report, cfg.topN, input.sort ?? 'size') }
   })
 
