@@ -59,6 +59,7 @@ const world = (on: any, init: Record<string, any> = {}) => {
       case 'ps': return st.psFail ? out('', 1) : out(st.claude.map((c: any) => `${c.pid} claude`).join('\n') + '\n')
       case 'lsof': return out(`p${a[2]}\nfcwd\nn${st.claude.find((c: any) => String(c.pid) === a[2])?.cwd}\n`)
       case 'sha256sum': return out(`${st.shaMap?.[a[2]!] ?? st.sha}  ${a[2]}\n`)
+      case 'rmdir': { const p = a[2]!; if ([...kinds.keys()].some(k => k.startsWith(`${p}/`))) return out('', 1, 'not empty'); kinds.delete(p); return out() }
       case 'tar': kinds.set(a[2]!, 'file'); return out()
       case 'git': {
         if (a[1] === 'clone') { kinds.set(a[6]!, 'dir'); return out() }
@@ -82,7 +83,12 @@ const world = (on: any, init: Record<string, any> = {}) => {
     return out('', 127)
   })
   on('fs.read', (_$: unknown, e: { path: string }) => { if (!(e.path in text)) throw new Error('ENOENT'); return { value: text[e.path] } })
-  on('fs.write', (_$: unknown, e: { path: string; text: string }) => { text[e.path] = e.text; return { value: undefined } })
+  let writes = 0
+  on('fs.write', (_$: unknown, e: { path: string; text: string }) => {
+    if (e.path.endsWith('/journal.json') && st.journalWrites !== undefined && writes++ >= st.journalWrites) throw new Error('ENOSPC')
+    text[e.path] = e.text
+    return { value: undefined }
+  })
   return { clock, kinds, text, calls, st }
 }
 
@@ -275,7 +281,7 @@ test('restore: 元の場所に戻し、元の場所に何かあれば拒否す�
   await $.tool.call({ tool: EXEC, plan_id: plan.planId, paths: [REPO], dry_run: false })
   const opId = `${plan.planId}-0`
   w.kinds.set('/w/old/node_modules', 'dir')
-  expect((await $.tool.call({ tool: RESTORE, repo: REPO, op_id: opId })).result).toContain('既に存在')
+  expect((await $.tool.call({ tool: RESTORE, repo: REPO, op_id: opId })).result).toContain('両方に存在')
   w.kinds.delete('/w/old/node_modules')
   const r = await $.tool.call({ tool: RESTORE, repo: REPO, op_id: opId })
   expect(r.result).toContain('OK')
@@ -417,4 +423,47 @@ test('archive: 既にある同名のファイル・復元リハーサル用デ�
   expect(w.calls.some(a => a[0] === 'rm')).toBe(false)
   expect(w.kinds.get(`${rehearsal}/precious`)).toBe('file')
   expect(w.calls.some(a => a[0] === 'git' && (a[3] === 'bundle' || a[1] === 'clone'))).toBe(false)
+})
+
+test('ジャーナルを最初に書けなければ、何も動かさずに中止する', async ($: any, on: any) => {
+  answer(on, 'はい、実行する')
+  const w = world(on, { st: { journalWrites: 0 } })
+  const plan = await makePlan($)
+  await approve($, `${plan.planId} の ${REPO} を実行しますか？`)
+  const r = await $.tool.call({ tool: EXEC, plan_id: plan.planId, paths: [REPO], dry_run: false })
+  expect(r.result).toContain('何も動かさずに中止')
+  expect(w.calls.some(a => a[0] === 'mv')).toBe(false)
+  expect(w.kinds.get('/w/old/node_modules')).toBe('dir')
+  expect(w.kinds.has(quarantineRoot(REPO, `${plan.planId}-0`))).toBe(false)
+})
+
+test('ジャーナルを確定できなければ、退避済みのものを元に戻す', async ($: any, on: any) => {
+  answer(on, 'はい、実行する')
+  const w2 = world(on, { st: { journalWrites: 1 } })
+  const plan = await makePlan($)
+  await approve($, `${plan.planId} の ${REPO} を実行しますか？`)
+  const r2 = await $.tool.call({ tool: EXEC, plan_id: plan.planId, paths: [REPO], dry_run: false })
+  expect(r2.result).toContain('ジャーナルを確定できなかった')
+  expect(r2.result).toContain('元に戻した')
+  expect(w2.kinds.get('/w/old/node_modules')).toBe('dir')
+})
+
+test('restore: 途中で止まった実行 (pending) も、エントリごとの状態を見て元に戻せる', async ($: any, on: any) => {
+  const w = world(on)
+  const opId = 'RSM-0123456789-0'
+  const root = quarantineRoot(REPO, opId)
+  w.kinds.delete('/w/old/node_modules')
+  w.kinds.set(root, 'dir')
+  w.kinds.set(`${root}/node_modules`, 'dir')
+  w.kinds.set('/w/old/target', 'dir') // こちらは動かす前に止まった
+  const entries = [
+    { name: 'node_modules', from: '/w/old/node_modules', to: `${root}/node_modules` },
+    { name: 'target', from: '/w/old/target', to: `${root}/target` },
+  ]
+  w.text[`${root}/journal.json`] = JSON.stringify({ schema: 'repo-preservation-journal-1', opId, planId: 'RSM-0123456789', operation: 'cache-only', repo: REPO, status: 'pending', entries, createdAt: '' })
+  const r = await $.tool.call({ tool: RESTORE, repo: REPO, op_id: opId })
+  expect(r.result).toContain('OK')
+  expect(w.kinds.get('/w/old/node_modules')).toBe('dir')
+  expect(w.kinds.get('/w/old/target')).toBe('dir')
+  expect((await $.tool.call({ tool: PURGE, repo: REPO, op_id: opId, dry_run: false })).deny).toBeDefined()
 })

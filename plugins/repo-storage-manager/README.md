@@ -83,7 +83,7 @@
 | `archive` | `git bundle create --all` → `bundle verify` → 一時ディレクトリへの clone で ref と HEAD を照合 (復元リハーサル) → `.git` の config / hooks / info を extras tar に保全 → sha256 → manifest。一致しなければ**この実行が作ったファイルだけ**を片付けて失敗 (退避先に同名のファイルや復元リハーサル用ディレクトリが既にあれば、何も削除せず衝突として拒否)。元は残る |
 | `relocate` | archive のあと、退避の直前に再検査し、元のリポジトリを退避ディレクトリへ rename。**bundle に含まれない gitignore 済みのデータ (`.env` など。再生成できる生成物を除く) が残っていれば、アーカイブも退避もせず拒否**する |
 
-- 退避の記録 (ジャーナル) は退避ディレクトリの `journal.json`。`restore_preservation` はこれを読み、元の場所に何かあれば拒否する。
+- 退避の記録 (ジャーナル) は退避ディレクトリの `journal.json`で、取引の一部として扱う。動かす前に意図 (`pending`) を書き、書けなければ何も動かさずに中止する。動かした後に確定 (`staged`) を書けなければ元に戻す。途中で止まった `pending` も、エントリごとの状態を見て `restore_preservation` で戻せる (`purge` は `staged` だけ)。`restore_preservation` はこれを読み、元の場所に何かあれば拒否する。
 - 削除は `purge_preservation` だけで、承認 (`op_id` と `repo` の復唱) が必要。検証済みの退避ディレクトリに対する `rm -r -- <path>` のみを実行する (`rm -rf`、シェル経由、glob は使わない)。relocate は、アーカイブの bundle と extras が存在し、sha256 が記録と一致するときだけ。復元できない可能性があれば拒否する。
 - purge の結果は、削除した退避データのサイズ (du、実測) と空き容量の変化 (df、実測。他のプロセスの影響を含む) を分けて出す。計画時の推定値とは区別する。
 - 自動実行・定期実行・リモート操作・force push・GitHub リポジトリの削除はしない。

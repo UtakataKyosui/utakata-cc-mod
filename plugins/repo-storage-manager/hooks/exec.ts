@@ -44,7 +44,7 @@ export type Journal = {
   planId: string
   operation: 'cache-only' | 'archive' | 'relocate'
   repo: string
-  status: 'staged' | 'purged' | 'restored' | 'failed'
+  status: 'pending' | 'staged' | 'purged' | 'restored' | 'failed'
   entries: { name: string; from: string; to: string }[]
   archive?: { bundle: string; manifest: string; sha256: string; extras?: string; extrasSha256?: string }
   measuredBytes?: number
@@ -57,7 +57,7 @@ export const parseJournal = (text: string): Journal | undefined => {
     const j = JSON.parse(text) as Journal
     if (j.schema !== 'repo-preservation-journal-1' || !OP_ID.test(j.opId) || !PLAN_ID.test(j.planId)) return undefined
     if (!isAbsolutePath(j.repo) || !Array.isArray(j.entries)) return undefined
-    if (!['staged', 'purged', 'restored', 'failed'].includes(j.status)) return undefined
+    if (!['pending', 'staged', 'purged', 'restored', 'failed'].includes(j.status)) return undefined
     const root = quarantineRoot(j.repo, j.opId)
     // 退避先と復元先が、ジャーナル自身の主張と矛盾しない (改ざん・取り違えの検出)
     for (const e of j.entries) {

@@ -105,22 +105,44 @@ export const revalidate = async (ctx: Ctx, plan: Plan, item: PlanItem): Promise<
 
 const writeJournal = (ctx: Ctx, root: string, j: Journal) => ctx.fs.write(`${root}/journal.json`, JSON.stringify(j, null, 2))
 
-/** 退避: 同一 FS 上の rename だけ。コピーになる移動 (別 FS) は拒否する。 */
-const stage = async (ctx: Ctx, repo: string, root: string, entries: Journal['entries'], steps: string[]): Promise<string | undefined> => {
+/** 退避済みのものを元に戻す。戻せなかったものの一覧を返す。 */
+const rollback = async (ctx: Ctx, entries: Journal['entries']): Promise<string[]> => {
+  const failed: string[] = []
+  for (const e of entries) {
+    if (await ok(ctx.run, ['test', '-e', e.from])) continue // まだ動かしていない
+    if (!(await ok(ctx.run, ['test', '-e', e.to])) || !(await ok(ctx.run, ['mv', '-n', '--', e.to, e.from]))) failed.push(e.from)
+  }
+  return failed
+}
+
+/**
+ * 退避: 同一 FS 上の rename だけ。ジャーナルは取引の一部として扱う。
+ * 動かす前に意図 (pending) を書き、書けなければ何も動かさず中止する。動かした後に確定 (staged) を書けなければ元に戻す。
+ */
+const stage = async (
+  ctx: Ctx, root: string, entries: Journal['entries'], base: Omit<Journal, 'status' | 'entries' | 'note'>, steps: string[],
+): Promise<string | undefined> => {
   const { run } = ctx
   if (!(await ok(run, ['mkdir', '--', root]))) return `退避ディレクトリを作れない: ${sanitize(root)} (既にある場合も拒否)`
+  const give = async (msg: string) => { await run(['rmdir', '--', root]); return msg } // 空のときだけ消える
   const rootMount = await mountOf(run, root)
   for (const e of entries) {
     const srcMount = await mountOf(run, e.from)
-    if (srcMount === undefined || rootMount === undefined || srcMount !== rootMount) return `別ファイルシステムのため退避しない (コピーになる): ${sanitize(e.from)}`
+    if (srcMount === undefined || rootMount === undefined || srcMount !== rootMount) return give(`別ファイルシステムのため退避しない (コピーになる): ${sanitize(e.from)}`)
   }
-  void repo
+  try { await writeJournal(ctx, root, { ...base, status: 'pending', entries }) } catch (e) { return give(`ジャーナルを書けないため、何も動かさずに中止した: ${String(e)}`) }
+  const undo = async (why: string): Promise<string> => {
+    const left = await rollback(ctx, entries)
+    await writeJournal(ctx, root, { ...base, status: 'failed', entries, note: why }).catch(() => undefined)
+    return left.length === 0 ? `${why} (退避済みのものは元に戻した)` : `${why}。元に戻せなかった: ${left.map(sanitize).join(', ')} — ${sanitize(root)} から手動で戻すこと`
+  }
   for (const e of entries) {
-    if (await ok(run, ['test', '-e', e.to])) return `退避先が既に存在する: ${sanitize(e.to)}`
+    if (await ok(run, ['test', '-e', e.to])) return undo(`退避先が既に存在する: ${sanitize(e.to)}`)
     const r = await run(['mv', '-n', '--', e.from, e.to])
-    if (r.exitCode !== 0) return `mv に失敗: ${sanitize(e.from)} ${sanitize(r.stderr).slice(0, 200)}`
+    if (r.exitCode !== 0) return undo(`mv に失敗: ${sanitize(e.from)} ${sanitize(r.stderr).slice(0, 200)}`)
     steps.push(`退避: ${e.from} -> ${e.to}`)
   }
+  try { await writeJournal(ctx, root, { ...base, status: 'staged', entries }) } catch (e) { return undo(`ジャーナルを確定できなかった: ${String(e)}`) }
   return undefined
 }
 
@@ -223,14 +245,8 @@ export const executeItem = async (ctx: Ctx, plan: Plan, item: PlanItem, index: n
     ? [{ name: basename(repo), from: repo, to: `${root}/${basename(repo)}` }]
     : item.targets.map(t => ({ name: basename(t), from: t, to: `${root}/${basename(t)}` }))
   const measured = (await Promise.all(entries.map(async e => (await out(ctx.run, ['du', '-sk', '-x', e.from]))))).reduce((a, o) => a + (o ? Number(o.split('\t')[0]) * 1024 : 0), 0)
-  const bad = await stage(ctx, repo, root, entries, steps)
-  const journal: Journal = { ...base, status: bad ? 'failed' : 'staged', entries, ...(arch ? { archive: arch } : {}), measuredBytes: measured, ...(bad ? { note: bad } : {}) }
-  try { await writeJournal(ctx, root, journal) } catch (e) { steps.push(`ジャーナルを書けない: ${String(e)}`) }
-  if (bad) {
-    // 部分失敗: 途中まで退避したものを元に戻す
-    for (const e of entries) if (await ok(ctx.run, ['test', '-e', e.to]) && !(await ok(ctx.run, ['test', '-e', e.from]))) await ctx.run(['mv', '-n', '--', e.to, e.from])
-    return { path: repo, ok: false, opId, steps, problems: [bad, '途中まで退避したものは元に戻した'] }
-  }
+  const bad = await stage(ctx, root, entries, { ...base, ...(arch ? { archive: arch } : {}), measuredBytes: measured }, steps)
+  if (bad) return { path: repo, ok: false, opId, steps, problems: [bad] }
   steps.push('退避のみ。容量は purge するまで回収されない')
   return { path: repo, ok: true, opId, steps, problems: [], measuredBytes: measured }
 }
@@ -252,9 +268,17 @@ export const restore = async (ctx: Ctx, repo: string, opId: string): Promise<Out
   const steps: string[] = []
   const { root, journal, problem } = await loadJournal(ctx, repo, opId)
   if (!journal) return { path: repo, ok: false, opId, steps, problems: [problem ?? 'unknown'] }
-  if (journal.status !== 'staged') return { path: repo, ok: false, opId, steps, problems: [`状態が staged ではない (${journal.status})`] }
-  for (const e of journal.entries) if (await ok(ctx.run, ['test', '-e', e.from])) return { path: repo, ok: false, opId, steps, problems: [`元の場所に既に存在する: ${sanitize(e.from)}`] }
+  if (journal.status !== 'staged' && journal.status !== 'pending') return { path: repo, ok: false, opId, steps, problems: [`復元できる状態ではない (${journal.status})`] }
+  // 途中で止まった実行 (pending) でも戻せるよう、エントリごとに状態を見る
+  const todo: Journal['entries'] = []
   for (const e of journal.entries) {
+    const [hasFrom, hasTo] = [await ok(ctx.run, ['test', '-e', e.from]), await ok(ctx.run, ['test', '-e', e.to])]
+    if (hasFrom && hasTo) return { path: repo, ok: false, opId, steps, problems: [`元の場所と退避先の両方に存在する: ${sanitize(e.from)}`] }
+    if (hasFrom) { steps.push(`既に元の場所にある: ${e.from}`); continue }
+    if (!hasTo) return { path: repo, ok: false, opId, steps, problems: [`元の場所にも退避先にも無い: ${sanitize(e.from)}`] }
+    todo.push(e)
+  }
+  for (const e of todo) {
     const r = await ctx.run(['mv', '-n', '--', e.to, e.from])
     if (r.exitCode !== 0) return { path: repo, ok: false, opId, steps, problems: [`mv に失敗: ${sanitize(e.from)}`] }
     steps.push(`復元: ${e.to} -> ${e.from}`)

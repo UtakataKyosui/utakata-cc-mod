@@ -43,5 +43,5 @@
 
 - `plan_id`: `RSM-` + 10 桁の 16 進。計画ごとにセッション内で保持する (セッションをまたいで使えない)。実行の `op_id` は `<plan_id>-<対象の番号>`。
 - `PlanItem.stateDigest`: 計画時の判定と git の状態のダイジェスト。実行直前に同じ式で再計算し、一致しなければ `STATE_CHANGED` で拒否する。
-- ジャーナル `repo-preservation-journal-1`: `opId`、`planId`、`operation`、`repo`、`status` (`staged` / `purged` / `restored` / `failed`)、`entries[]` (`from` / `to`)、`archive` (bundle・manifest・sha256)、`measuredBytes`。読み込み時に、`to` が退避ディレクトリ配下であること、`from` が許可された対象 (リポジトリ本体か `<repo>/<既知の生成物名>`) であることを検証し、矛盾するジャーナルは拒否する。
+- ジャーナル `repo-preservation-journal-1`: `opId`、`planId`、`operation`、`repo`、`status` (`pending` = 動かす前の意図 / `staged` / `purged` / `restored` / `failed`)、`entries[]` (`from` / `to`)、`archive` (bundle・manifest・sha256)、`measuredBytes`。読み込み時に、`to` が退避ディレクトリ配下であること、`from` が許可された対象 (リポジトリ本体か `<repo>/<既知の生成物名>`) であることを検証し、矛盾するジャーナルは拒否する。
 - manifest `repo-preservation-manifest-1`: `source`、`head`、`bundle`、`sha256`、`extras` (`.git` の config / hooks / info の tar と sha256)、`notPreserved` (保全しないもの)、`refs`、`verifiedAt`、`rehearsal` (ref・HEAD の一致)、`restore` (復元コマンド)。bundle は git の履歴だけで、gitignore 済みのファイルは含まれない。
