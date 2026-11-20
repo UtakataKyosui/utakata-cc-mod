@@ -398,7 +398,7 @@ test('scan: reflog が新しければ、コミットが古くても CANDIDATE �
   const $ = fake({
     ...GIT_OK,
     find: () => ({ exitCode: 0, stdout: '/w/a/.git\0/w/b/.git\0' }),
-    'git log': (a: string[]) => ({ exitCode: 0, stdout: a.includes('-g') ? (a[2] === '/w/a' ? `${Math.floor(Date.now() / 1000) - 86400}\n` : '') : '1500000000\n' }),
+    'git log': (a: string[]) => ({ exitCode: 0, stdout: a.includes('-g') ? (a[2] === '/w/a' ? `HEAD@{${Math.floor(Date.now() / 1000) - 86400}}\n` : '') : '1500000000\n' }),
   })
   const r = await scan($, readConfig({ scanRoots: ['/w'] }))
   const by = Object.fromEntries(r.repos.map(x => [x.path, x]))
@@ -411,4 +411,15 @@ test('scan: reflog が新しければ、コミットが古くても CANDIDATE �
   const text = formatReport(r, 10, 'activity')
   expect(text).toContain('最終活動')
   expect(text.indexOf('/w/b')).toBeLessThan(text.indexOf('/w/a'))
+})
+
+import { REFLOG_ARGS, parseReflogEpoch } from './policy'
+
+test('reflog の時刻は %gd (HEAD@{epoch}) から取る。%ct はコミットの日時なので使わない', () => {
+  expect([...REFLOG_ARGS]).toEqual(['log', '-g', '-1', '--date=unix', '--format=%gd', 'HEAD'])
+  expect(REFLOG_ARGS.join(' ')).not.toContain('%ct')
+  expect(parseReflogEpoch('HEAD@{1795193345}\n')).toBe(1795193345)
+  expect(parseReflogEpoch('')).toBeUndefined()
+  expect(parseReflogEpoch('1500000000')).toBeUndefined()
+  expect(parseReflogEpoch('HEAD@{2}')).toBeUndefined()
 })
