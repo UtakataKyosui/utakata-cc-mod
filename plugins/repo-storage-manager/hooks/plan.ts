@@ -25,6 +25,10 @@ export type Manifest = {
 
 export type PlanItem = {
   path: string
+  /** archive / relocate の退避先 */
+  destination?: string
+  /** 計画時の判定と git の状態のダイジェスト。実行直前に再計算して比較する */
+  stateDigest?: string
   operation: Operation
   status: 'PLANNED' | 'EXCLUDED'
   excluded: ExcludeReason[]
@@ -42,7 +46,7 @@ export type PlanItem = {
   requiresBeforeExecution: string[]
 }
 
-export type Plan = { schema: 'repo-preservation-plan-draft-1'; dryRun: true; items: PlanItem[]; degraded: string[] }
+export type Plan = { schema: 'repo-preservation-plan-draft-1'; planId: string; dryRun: true; items: PlanItem[]; degraded: string[] }
 
 const PRE = ['対象ごとのユーザーの明示承認', '実行直前のパス正規化・symlink・git/worktree 状態の再検査', 'ロック・稼働中セッションの確認']
 
@@ -55,7 +59,7 @@ export const planOne = (r: RepoReport, op: Operation, dest: Destination | undefi
     steps: [] as string[][], restoreRehearsal: [] as string[], manifest: undefined as Manifest | undefined, targets: [] as string[],
     unconfirmed: ['リモートの到達性は未検証', 'ward の出力・復元手順は実機で未確認 (docs/cli-survey.md)'], requiresBeforeExecution: PRE,
   }
-  const done = (): PlanItem => ({ ...base, excluded, status: excluded.length > 0 ? 'EXCLUDED' : 'PLANNED' })
+  const done = (): PlanItem => ({ ...base, ...(dest && op !== 'cache-only' ? { destination: dest.path } : {}), excluded, status: excluded.length > 0 ? 'EXCLUDED' : 'PLANNED' })
 
   if (r.verdict.category === 'UNKNOWN') excluded.push('STATE_UNKNOWN')
   if (r.verdict.reasons.includes('CURRENT_DIR')) excluded.push('CURRENT_DIR')
@@ -113,7 +117,7 @@ export const planOne = (r: RepoReport, op: Operation, dest: Destination | undefi
 }
 
 export const formatPlan = (p: Plan): string => {
-  const lines = ['# 保全計画 (Dry Run・何も実行していない)', 'schema: ' + p.schema]
+  const lines = ['# 保全計画 (Dry Run・何も実行していない)', 'schema: ' + p.schema, `plan_id: ${p.planId}`]
   if (p.degraded.length > 0) lines.push('', ...p.degraded.map(d => `- ${d}`))
   for (const i of p.items) {
     lines.push('', `## ${sanitize(i.path)} — ${i.operation} [${i.status}]`)

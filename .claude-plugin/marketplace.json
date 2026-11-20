@@ -123,7 +123,7 @@
     {
       "name": "repo-storage-manager",
       "source": "./plugins/repo-storage-manager",
-      "description": "ローカルのGitリポジトリと生成物の容量・活動状況・保全リスクを読み取り専用で解析する"
+      "description": "ローカルのGitリポジトリと生成物の容量・活動状況・保全リスクを解析し、明示承認付きで整理・退避する"
     }
   ]
 }
