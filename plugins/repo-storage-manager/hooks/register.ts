@@ -1,6 +1,6 @@
 import type { Register } from 'claude-code'
 import {
-  CACHE_MARKERS, CACHE_NAMES, type CacheDir, classifyCache, type ReportOptions, filterReport, type Config, type Observation, type Report, type RepoReport, classify, dedupePaths, activityOf, lastActivityOf, formatReport,
+  CACHE_MARKERS, CACHE_NAMES, type CacheDir, classifyCache, type ReportOptions, filterReport, type Config, type Observation, type Report, type RepoReport, classify, dedupePaths, activityOf, lastActivityOf, REFLOG_ARGS, parseReflogEpoch, formatReport,
   parseBranches, parseDu, parseNcdu, parseStatus, parseWorktrees, parentOf, readConfig, sanitize,
 } from './policy'
 import { type Run, createRun, probe } from './runner'
@@ -79,7 +79,7 @@ async function analyze(run: Run, path: string, source: 'ghq' | 'scan-root', cwd:
     git('log', '-1', '--format=%ct'),
     git('ls-files', '--', '.gitmodules'),
     git('rev-parse', '--path-format=absolute', '--is-bare-repository', '--git-dir', '--git-common-dir'),
-    git('log', '-g', '-1', '--format=%ct', 'HEAD'),
+    git(...REFLOG_ARGS),
   ])
   const rp = bare.stdout.trim().split('\n')
   const worktrees = wt.exitCode === 0 ? parseWorktrees(wt.stdout) : []
@@ -97,7 +97,7 @@ async function analyze(run: Run, path: string, source: 'ghq' | 'scan-root', cwd:
     stash: stash.exitCode === 0 ? stash.stdout.split('\n').filter(Boolean).length : undefined,
     lastCommitEpoch: log.exitCode === 0 && /^\d+$/.test(log.stdout.trim()) ? Number(log.stdout.trim()) : undefined,
     // reflog が無い・取れないのは失敗ではない (shallow・gc 後など)。その場合はコミット日時だけで判断する
-    lastReflogEpoch: reflog.exitCode === 0 && /^\d+$/.test(reflog.stdout.trim()) ? Number(reflog.stdout.trim()) : undefined,
+    lastReflogEpoch: reflog.exitCode === 0 ? parseReflogEpoch(reflog.stdout) : undefined,
   }
   const act = lastActivityOf(obs)
   const verdict = applySignal(classify(obs, now, cfg.staleDays), signal)

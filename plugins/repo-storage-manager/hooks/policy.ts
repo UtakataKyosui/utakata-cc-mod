@@ -162,6 +162,17 @@ export type Observation = {
 
 export type Verdict = { category: Category; reasons: Reason[] }
 
+/**
+ * HEAD の reflog の最新エントリの時刻を取る git の引数。`%ct` は -g を付けてもコミットの日時を返すため、
+ * エントリの時刻は reflog セレクタ (`%gd`) を `--date=unix` で出し、`HEAD@{<epoch>}` から取り出す。
+ */
+export const REFLOG_ARGS = ['log', '-g', '-1', '--date=unix', '--format=%gd', 'HEAD'] as const
+
+export const parseReflogEpoch = (out: string): number | undefined => {
+  const m = /@\{(\d{9,12})\}/.exec(out.trim())
+  return m ? Number(m[1]) : undefined
+}
+
 /** 活動日時。コミットと reflog (checkout・pull など) の新しいほう。最近使っているリポジトリを古いとみなさないため。 */
 export const lastActivityOf = (o: Pick<Observation, 'lastCommitEpoch' | 'lastReflogEpoch'>): { epoch: number | undefined; source: 'commit' | 'reflog' | undefined } => {
   const c = o.lastCommitEpoch
