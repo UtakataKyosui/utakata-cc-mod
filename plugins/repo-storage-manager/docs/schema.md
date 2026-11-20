@@ -23,7 +23,7 @@
 評価は上から順で、最初に当たったものが結果になる。
 
 1. `PROTECTED`: 現在の作業ディレクトリを含む、bare、submodule あり、追加 worktree あり
-2. `UNKNOWN`: git のコマンドが 1 つでも失敗、または stash 数が取れない
+2. `UNKNOWN`: git のコマンド (submodule の確認を含む) が 1 つでも失敗、または stash 数が取れない
 3. `DIRTY`: 未コミット、未追跡、未 push、upstream 無しのブランチ、stash
 4. `UNKNOWN`: コミットが無い
 5. `CANDIDATE`: `staleDays` 以上更新が無い (`STALE` + `REMOTE_UNVERIFIED`)

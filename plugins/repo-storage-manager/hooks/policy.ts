@@ -35,13 +35,14 @@ export const parseWorktrees = (out: string): Worktree[] =>
     }
   })
 
-export type GitStatus = { dirty: number; untracked: number; ahead: number; behind: number; hasUpstream: boolean }
+export type GitStatus = { dirty: number; untracked: number; ahead: number; behind: number; hasUpstream: boolean; detached: boolean }
 
 /** `git status --porcelain=v2 --branch` の解析。 */
 export const parseStatus = (out: string): GitStatus => {
-  const r: GitStatus = { dirty: 0, untracked: 0, ahead: 0, behind: 0, hasUpstream: false }
+  const r: GitStatus = { dirty: 0, untracked: 0, ahead: 0, behind: 0, hasUpstream: false, detached: false }
   for (const l of out.split('\n')) {
-    if (l.startsWith('# branch.upstream ')) r.hasUpstream = true
+    if (l === '# branch.head (detached)') r.detached = true
+    else if (l.startsWith('# branch.upstream ')) r.hasUpstream = true
     else if (l.startsWith('# branch.ab ')) {
       const m = /\+(\d+) -(\d+)/.exec(l)
       if (m) { r.ahead = Number(m[1]); r.behind = Number(m[2]) }
@@ -76,8 +77,10 @@ export const parseNcdu = (text: string): { apparent: number; usage: number } | u
     const isDir = (n: unknown): n is unknown[] => Array.isArray(n)
     const head = (n: unknown[]) => (n[0] ?? {}) as Record<string, unknown>
     let newFormat = false
+    let incomplete = false
     const scan = (dir: unknown[]): void => {
       if ('gdu_dsize' in head(dir) || 'gdu_asize' in head(dir)) newFormat = true
+      if (head(dir).read_error === true) incomplete = true
       dir.slice(1).forEach(c => { if (isDir(c)) scan(c) })
     }
     scan(doc[3])
@@ -90,13 +93,15 @@ export const parseNcdu = (text: string): { apparent: number; usage: number } | u
         if (isDir(c)) walk(c)
         else if (c && typeof c === 'object') {
           const o = c as Record<string, unknown>
+          if (o.read_error === true) incomplete = true
           apparent += num(o.asize)
           usage += num(o.dsize)
         }
       }
     }
     walk(doc[3])
-    return { apparent, usage }
+    // 読めなかったディレクトリがあれば部分的な測定なので、成功扱いにせず呼び出し側で du に切り替えさせる
+    return incomplete ? undefined : { apparent, usage }
   } catch {
     return undefined
   }
@@ -114,7 +119,7 @@ export const CACHE_NAMES = ['node_modules', 'target', '.next', 'dist', 'build', 
 export type Category = 'PROTECTED' | 'DIRTY' | 'UNKNOWN' | 'CANDIDATE'
 export type Reason =
   | 'CURRENT_DIR' | 'EXTRA_WORKTREE' | 'ACTIVE_WORKTREE' | 'BARE_REPO' | 'SUBMODULE'
-  | 'UNCOMMITTED' | 'UNTRACKED' | 'UNPUSHED' | 'NO_UPSTREAM' | 'STASH'
+  | 'UNCOMMITTED' | 'UNTRACKED' | 'UNPUSHED' | 'NO_UPSTREAM' | 'STASH' | 'DETACHED_HEAD'
   | 'GIT_FAILED' | 'NO_COMMITS' | 'REMOTE_UNVERIFIED' | 'STALE' | 'RECENT'
 
 export type Observation = {
@@ -152,6 +157,8 @@ export const classify = (o: Observation, nowEpoch: number, staleDays: number): V
   if (o.status.ahead > 0 || o.branches.ahead.length > 0) dirty.push('UNPUSHED')
   if (o.branches.noUpstream.length > 0) dirty.push('NO_UPSTREAM')
   if (o.stash > 0) dirty.push('STASH')
+  // detached HEAD のコミットは、どのブランチの ahead にも数えられないため保護側に倒す
+  if (o.status.detached) dirty.push('DETACHED_HEAD')
   if (dirty.length > 0) return { category: 'DIRTY', reasons: dirty }
 
   if (o.lastCommitEpoch === undefined) return { category: 'UNKNOWN', reasons: ['NO_COMMITS'] }

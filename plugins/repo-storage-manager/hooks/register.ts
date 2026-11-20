@@ -68,7 +68,7 @@ async function analyze(run: Run, path: string, source: 'ghq' | 'scan-root', cwd:
     path,
     currentDir: cwd === path || cwd.startsWith(`${path}/`),
     activeWorktree: false,
-    failed: [wt, st, br, stash, bare].some(r => r.exitCode !== 0),
+    failed: [wt, st, br, stash, bare, sub].some(r => r.exitCode !== 0),
     bare: bare.stdout.trim() === 'true',
     hasSubmodules: sub.stdout.trim() !== '',
     extraWorktrees: Math.max(0, worktrees.length - 1),

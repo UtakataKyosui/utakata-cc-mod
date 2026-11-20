@@ -6,7 +6,7 @@ import {
 const NOW = 1_800_000_000
 const clean: Observation = {
   path: '/r/a', currentDir: false, activeWorktree: false, failed: false, bare: false, hasSubmodules: false, extraWorktrees: 0,
-  status: { dirty: 0, untracked: 0, ahead: 0, behind: 0, hasUpstream: true },
+  status: { dirty: 0, untracked: 0, ahead: 0, behind: 0, hasUpstream: true, detached: false },
   branches: { noUpstream: [], ahead: [] }, stash: 0, lastCommitEpoch: NOW - 400 * 86400,
 }
 
@@ -30,7 +30,7 @@ test('保護・dirty・unknown は安全側に倒す', () => {
 })
 
 test('git 出力の解析', () => {
-  expect(parseStatus('# branch.upstream o/m\n# branch.ab +2 -1\n1 .M x\n? y\n? z').valueOf()).toEqual({ dirty: 1, untracked: 2, ahead: 2, behind: 1, hasUpstream: true })
+  expect(parseStatus('# branch.upstream o/m\n# branch.ab +2 -1\n1 .M x\n? y\n? z').valueOf()).toEqual({ dirty: 1, untracked: 2, ahead: 2, behind: 1, hasUpstream: true, detached: false })
   expect(parseBranches('main\torigin/main\t\nfeat\t\t\nfix\torigin/fix\t[ahead 1]')).toEqual({ noUpstream: ['feat'], ahead: ['fix'] })
   const wt = parseWorktrees('worktree /a b/日本語\nbranch refs/heads/main\n\nworktree /w\ndetached\nprunable gone')
   expect(wt.map(w => [w.path, w.branch, w.isMain, w.prunable])).toEqual([['/a b/日本語', 'main', true, false], ['/w', '(detached)', false, true]])
@@ -200,4 +200,14 @@ test('scan: 現在の作業ディレクトリ・追加 worktree・nested は保�
     if (argv[0] === 'git') expect(argv[3]).not.toMatch(banned)
     if (argv[0] === 'git' && argv[3] === 'worktree') expect(argv[4]).toBe('list')
   }
+})
+
+test('レビュー指摘: submodule 確認の失敗・detached HEAD・読み取りエラーのある ncdu は安全側に倒す', async () => {
+  expect(parseStatus('# branch.head (detached)\n').detached).toBe(true)
+  expect(classify({ ...clean, status: { ...clean.status!, detached: true } }, NOW, 180)).toEqual({ category: 'DIRTY', reasons: ['DETACHED_HEAD'] })
+  expect(parseNcdu('[1,2,{},[{"name":"r","read_error":true}]]')).toBeUndefined()
+  expect(parseNcdu('[1,2,{},[{"name":"r"},[{"name":"d","read_error":true},{"name":"f","asize":1,"dsize":1}]]]')).toBeUndefined()
+  const $ = fake({ ...GIT_OK, find: () => ({ exitCode: 0, stdout: '/w/a/.git\0' }), 'git ls-files': () => ({ exitCode: 128, stdout: '' }) })
+  const r = await scan($, readConfig({ scanRoots: '/w' }))
+  expect(r.repos[0]!.verdict).toEqual({ category: 'UNKNOWN', reasons: ['GIT_FAILED'] })
 })
