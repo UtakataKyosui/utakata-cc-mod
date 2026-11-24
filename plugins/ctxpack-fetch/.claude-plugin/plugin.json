@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "ctxpack-fetch",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "WebFetch を禁じ、代わりに ctxpack で Web ページをノイズ除去した Markdown として取得するツール (fetch_page) をモデルに提供するMod。ローカルLLMによる出典付きの関連段落抽出も選べる",
   "author": { "name": "UtakataKyosui" },
   "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
@@ -14,6 +14,22 @@
       "default": 60000,
       "min": 1000,
       "max": 400000
+    },
+    "jsRender": {
+      "type": "string",
+      "title": "動的ページのヘッドレス描画",
+      "description": "auto: ctxpack が JavaScript の描画を要すると判定したページを、ヘッドレス Chrome で描画して取り直す / off: 取り直さない",
+      "default": "auto",
+      "options": [
+        "auto",
+        "off"
+      ]
+    },
+    "chromePath": {
+      "type": "string",
+      "title": "Chrome / Chromium の実行ファイル",
+      "description": "ヘッドレス描画に使う実行ファイルのパス。空なら PATH から google-chrome・chromium などを探す",
+      "default": ""
     },
     "llmMode": {
       "type": "string",

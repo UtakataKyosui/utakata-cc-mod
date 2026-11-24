@@ -1,7 +1,7 @@
 import type { Register } from 'claude-code'
 import {
-  type Config, type FetchPageInput, MAX_CANDIDATES, MAX_PICK, autoWhen, buildExtractPrompt, clipText, ctxpackArgs, denyText, extractSystem,
-  guidance, isHttpUrl, parseParts, readConfig, renderPicked, shouldExtract, splitPage, validPick,
+  type Config, type FetchPageInput, MAX_CANDIDATES, MAX_PICK, NEEDS_JS_EXIT, autoWhen, buildExtractPrompt, clipText, ctxpackArgs, denyText, extractSystem,
+  guidance, isHttpUrl, parseParts, readConfig, renderArgs, renderPicked, shouldExtract, splitPage, validPick,
 } from './policy'
 import { type LlmState, type LlmTransport, callLocalLlm, createLlmState, idsSchema, pickByIds, validateIds } from './local-llm'
 
@@ -85,7 +85,16 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: FETCH }, async ($, e, next) => {
     const input = e as unknown as FetchPageInput
     if (!isHttpUrl(input.url)) return { deny: 'url must be an http(s) URL' }
-    const r = await $.process.run(ctxpackArgs(input), { timeoutMs: 60_000 })
+    let r = await $.process.run(ctxpackArgs(input), { timeoutMs: 60_000 })
+    if (r.exitCode === NEEDS_JS_EXIT && cfg.render) {
+      // 動的ページ: ヘッドレス Chrome で描画した DOM を ctxpack に渡して取り直す
+      const rendered = await $.process.run(renderArgs(input, cfg.chromePath), { timeoutMs: 60_000 })
+      if (rendered.exitCode === 0 && rendered.stdout.trim() !== '') r = rendered
+      else {
+        const why = rendered.exitCode === 127 ? 'Chrome / Chromium が見つからない (userConfig の chromePath で指定できる)' : rendered.stderr.trim() || `exit ${rendered.exitCode}`
+        return { deny: `このページは JavaScript の描画が必要で、ヘッドレス Chrome での取得にも失敗した: ${why}` }
+      }
+    }
     if (r.exitCode !== 0) return { deny: `ctxpack failed: ${r.stderr.trim() || `exit ${r.exitCode}`}` }
     if (input.parts !== undefined) {
       const cands = splitPage(r.stdout)

@@ -1,10 +1,15 @@
 import { type Candidate, type LlmConfig, readLlmConfig, renderCandidates, splitCandidates, validateIds } from './local-llm'
 
-export type Config = { maxChars: number; llm: LlmConfig }
+export type Config = { maxChars: number; render: boolean; chromePath: string; llm: LlmConfig }
 
 export const readConfig = (options: Record<string, unknown> | undefined): Config => {
   const n = Number(options?.maxChars)
-  return { maxChars: Number.isFinite(n) ? Math.min(400000, Math.max(1000, Math.trunc(n))) : 60000, llm: readLlmConfig(options) }
+  return {
+    maxChars: Number.isFinite(n) ? Math.min(400000, Math.max(1000, Math.trunc(n))) : 60000,
+    render: options?.jsRender !== 'off',
+    chromePath: typeof options?.chromePath === 'string' ? options.chromePath.trim() : '',
+    llm: readLlmConfig(options),
+  }
 }
 
 export type FetchPageInput = {
@@ -31,6 +36,32 @@ export const ctxpackArgs = (input: FetchPageInput): string[] => [
   'ctxpack',
   input.url,
   ...(input.query === undefined || input.query.trim() === '' ? [] : ['--query', input.query.trim()]),
+]
+
+/** ctxpack が「JavaScript の描画が必要なページ」と判定したときの終了コード。 */
+export const NEEDS_JS_EXIT = 3
+
+/**
+ * ヘッドレス Chrome で描画した DOM を ctxpack の stdin に渡す。URL・パスは sh の位置引数で渡し、シェル文字列には埋め込まない。
+ * root のときだけ --no-sandbox を付ける (コンテナで必要になるため)。Chrome が見つからなければ 127 で終わる。
+ */
+const RENDER_SCRIPT = [
+  'c="$1"; u="$2"; shift 2',
+  'if [ -z "$c" ]; then for n in google-chrome google-chrome-stable chromium chromium-browser chrome; do command -v "$n" >/dev/null 2>&1 && c="$n" && break; done; fi',
+  'if [ -z "$c" ]; then for p in /opt/pw-browsers/chromium "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"; do [ -x "$p" ] && c="$p" && break; done; fi',
+  '[ -n "$c" ] || { echo "Chrome / Chromium が見つからない" >&2; exit 127; }',
+  'sb=""; [ "$(id -u)" = 0 ] && sb="--no-sandbox"',
+  '"$c" --headless=new --disable-gpu $sb --virtual-time-budget=15000 --dump-dom "$u" 2>/dev/null | ctxpack - "$@"',
+].join('\n')
+
+export const renderArgs = (input: FetchPageInput, chromePath: string): string[] => [
+  'sh',
+  '-c',
+  RENDER_SCRIPT,
+  'ctxpack-render',
+  chromePath,
+  input.url,
+  ...(hasQuery(input) ? ['--query', input.query!.trim()] : []),
 ]
 
 export const clipText = (stdout: string, max: number): string =>

@@ -211,3 +211,43 @@ test('ctxpack 未導入なら WebFetch をそのまま使え、LLM へも通信�
   expect(r.deny).toBeUndefined()
   expect(s.fetches()).toBe(0)
 })
+
+test('動的ページ: ctxpack が終了コード 3 を返したらヘッドレス Chrome の描画結果で取り直す', async ($: any, on: any) => {
+  mock.clock(on)
+  const runs: string[][] = []
+  on('process.run', (_$: unknown, e: { argv: readonly string[] }) => {
+    runs.push([...e.argv])
+    if (e.argv[0] === 'ctxpack') return { value: { exitCode: 3, stdout: '', stderr: 'needs JavaScript' } }
+    if (e.argv[2]?.includes('command -v ctxpack')) return { value: { exitCode: 0, stdout: '', stderr: '' } }
+    return { value: { exitCode: 0, stdout: 'RENDERED', stderr: '' } }
+  })
+  on('ui.log', () => ({ value: undefined }))
+  expect((await call($)).result).toBe('RENDERED')
+  const render = runs.find(a => a[3] === 'ctxpack-render')!
+  expect(render.slice(4)).toEqual(['', URL_, '--query', 'timeout'])
+})
+
+test('動的ページ: Chrome がなければ理由を添えて拒否し、jsRender off なら取り直さない', async ($: any, on: any) => {
+  mock.clock(on)
+  const runs: string[][] = []
+  on('process.run', (_$: unknown, e: { argv: readonly string[] }) => {
+    runs.push([...e.argv])
+    if (e.argv[0] === 'ctxpack') return { value: { exitCode: 3, stdout: '', stderr: 'needs JavaScript' } }
+    if (e.argv[3] === 'ctxpack-render') return { value: { exitCode: 127, stdout: '', stderr: '' } }
+    return { value: { exitCode: 0, stdout: '', stderr: '' } }
+  })
+  on('ui.log', () => ({ value: undefined }))
+  expect((await call($)).deny).toContain('chromePath')
+})
+
+test('動的ページ: jsRender off では再取得しない', { options: { jsRender: 'off' } }, async ($: any, on: any) => {
+  mock.clock(on)
+  const runs: string[][] = []
+  on('process.run', (_$: unknown, e: { argv: readonly string[] }) => {
+    runs.push([...e.argv])
+    return { value: e.argv[0] === 'ctxpack' ? { exitCode: 3, stdout: '', stderr: 'needs JavaScript' } : { exitCode: 0, stdout: '', stderr: '' } }
+  })
+  on('ui.log', () => ({ value: undefined }))
+  expect((await call($)).deny).toContain('ctxpack failed')
+  expect(runs.some(a => a[3] === 'ctxpack-render')).toBe(false)
+})
