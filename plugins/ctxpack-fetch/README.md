@@ -10,6 +10,7 @@ WebFetch を禁じ、代わりに [ctxpack](https://github.com/atani/ctxpack) �
 - URL は http(s) のみ受け付ける。コマンドはシェルを通さず argv で実行する。
 - `query` を渡すと、関連するセクションが先頭に来る。
 - `query` を渡し、ローカルLLMの抽出を有効にすると、関係する段落だけを出典付きで返す（[抽出モード](#抽出モード)）。
+- JavaScript で描画されるページ（SPA など）を ctxpack が検知して終了コード 3 を返したときは、ヘッドレス Chrome / Chromium で描画した DOM を `ctxpack -` に渡して取り直す（[動的ページ](#動的ページ)）。
 - 返す文字数の上限は userConfig の `maxChars`（既定 60000）で変更できる。
 - システムプロンプトにも WebFetch の代わりに `fetch_page` を使う案内を足す。
 
@@ -27,9 +28,24 @@ brew install atani/tap/ctxpack
 | 項目 | 型 | 既定値 | 内容 |
 |---|---|---|---|
 | `maxChars` | number | `60000` | 1 回の取得で返す文字数の上限。超えた分は切り捨てて全体の文字数だけ伝える 範囲: 1000〜400000。 |
+| `jsRender` | string | `auto` | 動的ページの再取得。`auto` / `off` |
+| `chromePath` | string | 空 | ヘッドレス描画に使う Chrome / Chromium のパス。空なら PATH 等から探す |
 | `llmMode` | string | `off` | 抽出モード。`off` / `auto` / `always` |
 | `ollamaUrl` `models` `timeoutSeconds` `totalTimeoutSeconds` `maxAttempts` `keepAlive` `maxInputChars` `maxOutputChars` | | | ローカルLLMの共通設定。意味・既定値・範囲は [shared/local-llm](../../shared/local-llm/README.md#設定キー) を参照 |
 
+
+## 動的ページ
+
+ctxpack は HTTP で取得した HTML しか読まないため、JavaScript で本文を描画するページ（`id="root"` / `id="__next"` だけの SPA など）では内容が取れず、終了コード 3 で終わる。このとき `jsRender` が `auto`（既定）なら、次を実行して取り直す。
+
+```
+chrome --headless=new --virtual-time-budget=15000 --dump-dom <url> | ctxpack - [--query ...]
+```
+
+- Chrome は `chromePath`、なければ PATH 上の `google-chrome` / `chromium` など、`/opt/pw-browsers/chromium`、macOS の Google Chrome の順に探す。root で動くときだけ `--no-sandbox` を付ける。
+- 見つからない・描画に失敗したときは、理由を添えて取得を拒否する。`jsRender: off` なら従来どおり ctxpack の失敗をそのまま返す。
+- 描画後の DOM は stdin で渡すため、相対リンクは元の URL に解決されない。
+- 描画は外部ページのスクリプトを実行する。信頼できない URL では `off` にする。
 
 ## 抽出モード
 
