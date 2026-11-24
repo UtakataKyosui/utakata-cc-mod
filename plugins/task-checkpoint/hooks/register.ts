@@ -26,6 +26,9 @@ import {
 
 const TOOL = 'checkpoint'
 const TOOL_FULL = `mcp__task-checkpoint__${TOOL}`
+// 組み込みの /checkpoint (/rewind の別名) と衝突しない名前にする
+const COMMAND = 'task-checkpoint'
+const COMMAND_HINT = '[show|reconcile|diagnose|goal <文>|reset]'
 
 const TOOL_DESCRIPTION = [
   'ゴール・タスク・依存関係・状態・成果物・検証結果・未解決事項をローカルに保存する。',
@@ -54,7 +57,7 @@ const INPUT_SCHEMA = {
 }
 
 type Loaded = { chosen: Chosen; body: Body; findings: Finding[] }
-type Runtime = { cfg: Config; cache: Loaded | undefined; queue: Promise<unknown> }
+type Runtime = { cfg: Config; cache: Loaded | undefined; queue: Promise<unknown>; commandReady: boolean }
 
 // 操作を直列にして、読み書きの競合で保存内容を壊さない
 const serial = <T>(rt: Runtime, fn: () => Promise<T>): Promise<T> => {
@@ -203,20 +206,34 @@ async function runCommand($: any, rt: Runtime, args: string): Promise<string> {
     case 'reset':
       return commit($, rt, { op: 'reset' })
     default:
-      return '使い方: /checkpoint [show|reconcile|diagnose|goal <文>|reset]'
+      return `使い方: /${COMMAND} ${COMMAND_HINT}`
   }
 }
 
 export const register: Register = (on, options) => {
-  const rt: Runtime = { cfg: readConfig(options), cache: undefined, queue: Promise.resolve() }
+  const rt: Runtime = { cfg: readConfig(options), cache: undefined, queue: Promise.resolve(), commandReady: false }
 
   on('session.start', async ($, e, next) => {
+    // 登録の失敗は記録だけして、復元処理は必ず続ける
     try {
       await $.tool.register({ name: TOOL, description: TOOL_DESCRIPTION, inputSchema: INPUT_SCHEMA })
-      await $.command.register({ name: 'checkpoint', description: 'ゴールとタスクの保存状態を表示・照合する', argumentHint: '[show|reconcile|diagnose|goal <文>|reset]' })
+    } catch (err) {
+      $.ui.log(`task-checkpoint: could not register tool (${String(err)})`, { to: 'debug' })
+    }
+    try {
+      await $.command.register({ name: COMMAND, description: 'ゴールとタスクの保存状態を表示・照合する', argumentHint: COMMAND_HINT })
+      rt.commandReady = true
+    } catch (err) {
+      rt.commandReady = false
+      $.ui.log(`task-checkpoint: could not register /${COMMAND} (${String(err)})`, { to: 'debug' })
+    }
+    try {
       const l = await recover($, rt)
       const attention = l.findings.filter(f => f.kind !== 'rev-changed').length + diagnosis(l).length
-      if (attention > 0) $.ui.toast(`task-checkpoint: 要確認が ${attention} 件ある。/checkpoint で確認できる`)
+      if (attention > 0) {
+        const how = rt.commandReady ? `/${COMMAND} で確認できる` : `${TOOL_FULL} の show で確認できる`
+        $.ui.toast(`task-checkpoint: 要確認が ${attention} 件ある。${how}`)
+      }
     } catch (err) {
       $.ui.log(`task-checkpoint: could not restore (${String(err)})`, { to: 'debug' })
     }
@@ -251,7 +268,7 @@ export const register: Register = (on, options) => {
     return { result }
   })
 
-  on('command.run', { command: 'checkpoint' }, async ($, e) => ({ text: await safely(() => runCommand($, rt, e.args)) }))
+  on('command.run', { command: COMMAND }, async ($, e) => ({ text: await safely(() => runCommand($, rt, e.args)) }))
 
   // goal-orchestrator とは疎結合に連携する。/goal の文を拾ってゴールとして記録するだけ
   on('command.run', { command: 'goal' }, async ($, e, next) => {

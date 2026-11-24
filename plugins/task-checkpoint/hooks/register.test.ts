@@ -175,14 +175,27 @@ test('表示は未完了を先に並べ、上限で省略する', () => {
 
 // ---- hook を通した動作 ----
 
-const setup = ($: any, on: any, files: Record<string, string>, fps: Record<string, { size: number; mtimeMs: number }> = {}) => {
+const setup = (
+  $: any,
+  on: any,
+  files: Record<string, string>,
+  fps: Record<string, { size: number; mtimeMs: number }> = {},
+  logs: string[] = [],
+  refuseCommand = false,
+) => {
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('session.root', () => ({ value: '/proj' }))
   on('clock.now', () => ({ value: Date.parse(NOW) }))
   on('ui.toast', () => ({ value: undefined }))
-  on('ui.log', () => ({ value: undefined }))
+  on('ui.log', (_: unknown, e: { text?: string; message?: string }) => {
+    logs.push(String(e.text ?? e.message ?? JSON.stringify(e)))
+    return { value: undefined }
+  })
   on('tool.register', () => ({ value: { tool: 'x' } }))
-  on('command.register', () => ({ value: { command: 'checkpoint' } }))
+  on('command.register', (_: unknown, e: { name: string }) => {
+    if (refuseCommand) throw new Error(`$.command.register: "/${e.name}" refused`)
+    return { value: { command: e.name } }
+  })
   on('process.run', () => ({ value: { exitCode: 0, stdout: 'rev1\n', stderr: '' } }))
   on('fs.exists', (_: unknown, e: { path: string }) => ({ value: e.path in files }))
   on('fs.read', (_: unknown, e: { path: string }) => {
@@ -275,15 +288,30 @@ test('照合で成果物の変更を検出し、done を再確認へ戻す', asy
   expect(String(r.result)).toContain('検証のあとに変わった')
 })
 
-test('/goal の文をゴールとして拾い、/checkpoint で表示できる', async ($, on) => {
+test('/goal の文をゴールとして拾い、/task-checkpoint で表示できる', async ($, on) => {
   const files: Record<string, string> = {}
   setup($, on, files)
   on('command.run', { command: 'goal' }, () => ({ text: 'Goal set' }))
   await $.session.start({ cwd: '/proj', surface: null, isInteractive: false })
 
   await $.command.run({ command: 'goal', args: 'ログインを作る' })
-  const shown = await $.command.run({ command: 'checkpoint', args: '' })
+  const shown = await $.command.run({ command: 'task-checkpoint', args: '' })
   expect(shown.text).toContain('ゴール: ログインを作る')
-  const diag = await $.command.run({ command: 'checkpoint', args: 'diagnose' })
+  const diag = await $.command.run({ command: 'task-checkpoint', args: 'diagnose' })
   expect(diag.text).toContain('問題はない')
+})
+
+test('コマンドの登録が拒否されても復元は続き、prompt に載る', async ($, on) => {
+  const files: Record<string, string> = {}
+  files['/proj/.claude/checkpoints/slot-a.json'] = encode({ goal: '復元', tasks: [], issues: [] }, 1, NOW)
+  const logs: string[] = []
+  setup($, on, files, {}, logs, true)
+  await $.session.start({ cwd: '/proj', surface: null, isInteractive: false })
+
+  expect(logs.some(l => l.includes('could not register /task-checkpoint'))).toBe(true)
+  expect(logs.some(l => l.includes('could not restore'))).toBe(false)
+  const composed = await $.prompt.compose(COMPOSE)
+  expect(String(composed.sections.at(-1)?.text)).toContain('ゴール: 復元')
+  const r = await $.tool.call({ tool: CALL, op: 'show' })
+  expect(String(r.result)).toContain('ゴール: 復元')
 })

@@ -5,13 +5,13 @@
 ## 使い方
 
 ```text
-/checkpoint goal 認証処理を整理する
-/checkpoint show
-/checkpoint reconcile
-/checkpoint diagnose
+/task-checkpoint goal 認証処理を整理する
+/task-checkpoint show
+/task-checkpoint reconcile
+/task-checkpoint diagnose
 ```
 
-`/checkpoint reset` は台帳を初期化する。通常のタスク更新は `mcp__task-checkpoint__checkpoint` ツールで行う。
+`/task-checkpoint reset` は台帳を初期化する。コマンド名は組み込みの `/checkpoint`（`/rewind` の別名）と衝突しないよう `/task-checkpoint` にしている。通常のタスク更新は `mcp__task-checkpoint__checkpoint` ツールで行う。
 
 | op | 入力 | 用途 |
 |---|---|---|
