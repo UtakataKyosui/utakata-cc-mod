@@ -77,6 +77,8 @@ pnpm run test:integration
 
 `git worktree list --porcelain` の解析は ghq-pane と repo-storage-manager で共有している。正本は [shared/git-worktree](shared/git-worktree/parse.ts) で、編集したら `pnpm run sync:git-worktree` で各プラグインへ同梱コピーを更新する(ずれは `test:integration` で検出する)。ghq-pane の従来の出力と一致することは `pnpm run test:shared` で確認する。
 
+オールインワン版(全プラグインを1回のインストールで入れ、依存の無いものを自動で無効化する別リポジトリ)の中身は `pnpm run build:all-in-one` で `dist/all-in-one` に生成する。既存のチェックアウトに直接書き出すときは `bun run scripts/build-all-in-one.ts --out <dir> --repo <owner>/<name>`。親プラグインの正本は [all-in-one/plugin](all-in-one/plugin) で、プラグインを足したら `all-in-one/plugin/hooks/policy.ts` の `NEEDS` に必要な CLI・ollama などを書く(書き忘れるとビルドが止まる)。親プラグインのテストは `pnpm run test:all-in-one`。
+
 ローカルLLM併用の評価(off / auto / always の比較手順、機密を含まないフィクスチャ、計測レコードとレポート)は [evals/local-llm](evals/local-llm/README.md) にある。通常のテストはモックで動き(`pnpm run test:evals`、`test:integration` にも含む)、実 Claude・実 ollama での測定は手動手順として分けている。効果は未測定で、削減率は保証しない。
 
 Mod対応のClaude Codeで実行する。確認した環境(Claude Code 2.1.289)と制約は [harness-profile](plugins/harness-profile/README.md) を参照。依存CLIや外部サービスの前提条件は各READMEに記載している。

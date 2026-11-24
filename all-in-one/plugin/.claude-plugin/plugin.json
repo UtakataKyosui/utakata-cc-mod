@@ -1,0 +1,33 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "utakata-all-in-one",
+  "version": "0.1.0",
+  "description": "utakata-cc-mod の全プラグインを1回のインストールで入れ、依存の足りないものと競合するものは自動で無効化する",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "dependencies": [],
+  "userConfig": {
+    "disabled": {
+      "type": "string",
+      "title": "無効にするプラグイン (カンマ区切り)",
+      "description": "ここに書いたプラグインは読み込まない。既定では競合する組の片方 (advanced-rust-cli, subagent-router) を止めている",
+      "default": "advanced-rust-cli,subagent-router"
+    },
+    "autoDisable": {
+      "type": "string",
+      "title": "依存が無いプラグインを自動で無効化する",
+      "description": "on は CLI・ollama・LocalJev・必須設定が足りないプラグインを読み込まない。off は disabled と競合の判定だけ行う",
+      "default": "on",
+      "options": ["on", "off"]
+    },
+    "probeTimeoutSeconds": {
+      "type": "number",
+      "title": "依存の確認ごとの待ち時間の上限 (秒)",
+      "description": "ollama や LocalJev が応答しないとき、ここで打ち切って「無し」と判定する",
+      "default": 2,
+      "min": 1,
+      "max": 30
+    }
+  }
+}

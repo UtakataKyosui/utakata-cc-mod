@@ -52,7 +52,10 @@ export const register: Register = (on, options) => {
   })
 
   // プラグインの外部通信 (ollama など) を allowlist と送信内容の検査で制限する。
+  // 本体のモデルリクエストも http.fetch を通る (next.origin.plugin が "engine")。これは対象外にしないと、
+  // allowlist に無い API のホストへの送信を止めて Claude が応答できなくなる。
   on('http.fetch', (_$, e, next) => {
+    if (next.origin.plugin === 'engine') return next(e)
     const reason = guardFetch(e.url, e.init?.body, cfg)
     return reason === undefined ? next(e) : { deny: reason }
   })

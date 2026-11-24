@@ -1,0 +1,4 @@
+{
+  "description": "収録プラグインの依存 (CLI・ollama・LocalJev・必須設定) を読み込み時に確かめ、足りないものと競合するものだけ読み込みを止める",
+  "modules": ["./register.ts"]
+}

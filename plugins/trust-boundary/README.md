@@ -15,7 +15,7 @@
 
 - 設定した外部ツールを呼ぶとフラグを立て、成功した結果に出所の注記を加える。
 - 外部取得後のtool.checkでは、設定変更・外部送信・公開系など検出した操作をaskまたはdenyにする。本体のdenyを許可へ変更しない。
-- プラグインのhttp.fetchでは宛先ホストと送信本文を検査する。ollamaを別ホストへ移す場合はallowedHostsにも追加する。
+- プラグインのhttp.fetchでは宛先ホストと送信本文を検査する。ollamaを別ホストへ移す場合はallowedHostsにも追加する。Claude本体のモデルリクエスト (`next.origin.plugin` が `engine`) は検査しない。
 - ntnによるNotion書き込みはnotionWriteと本文検査を適用する。取得はnotionWriteの対象外。
 - 対象Web取得のURLや外部MCP書き込みの入力も秘密検査する。
 

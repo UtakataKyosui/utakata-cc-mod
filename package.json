@@ -12,7 +12,9 @@
     "test:evals": "bun test ./evals",
     "eval:local-llm": "bun run evals/local-llm/run.ts",
     "sync:local-llm": "bun run scripts/sync-local-llm.ts",
-    "sync:git-worktree": "bun run scripts/sync-git-worktree.ts"
+    "sync:git-worktree": "bun run scripts/sync-git-worktree.ts",
+    "build:all-in-one": "bun run scripts/build-all-in-one.ts",
+    "test:all-in-one": "claude plugin validate all-in-one/plugin && claude plugin test all-in-one/plugin"
   },
   "license": "MIT",
   "devEngines": {
