@@ -1,3 +1,5 @@
+import type { CheckItem, SpecCard } from '../types'
+
 export type Config = {
   manifestPath: string
   lakeCommand: string
@@ -336,6 +338,8 @@ export type Status = {
   changed: string[]
   caught: number
   missed: Mutation[]
+  /** 今の証拠として数える壊した実装の記録 */
+  mutations: Mutation[]
 }
 
 export const statusOf = (spec: Spec, evidence: string, rec: Record_ | undefined, now: string | null, changed: string[] | null): Status => {
@@ -344,7 +348,7 @@ export const statusOf = (spec: Spec, evidence: string, rec: Record_ | undefined,
   const sync: Status['sync'] = spec.syncCommit === undefined ? 'unsynced' : changed === null ? 'unknown' : changed.length > 0 ? 'changed' : 'synced'
   // 仕様や Lean ソースが変わる前の記録は、今の定理の証拠にならない
   const muts = (rec?.mutations ?? []).filter(m => m.spec === evidence)
-  return { spec, check, sync, changed: changed ?? [], caught: muts.filter(m => m.caught).length, missed: muts.filter(m => !m.caught) }
+  return { spec, check, sync, changed: changed ?? [], caught: muts.filter(m => m.caught).length, missed: muts.filter(m => !m.caught), mutations: muts }
 }
 
 export const isTrusted = (s: Status, requireMutation: boolean): boolean =>
@@ -376,6 +380,48 @@ export const formatStatus = (list: Status[], requireMutation: boolean): string =
     ...rows,
     ...(notes.length ? ['', ...notes] : []),
   ].join('\n')
+}
+
+// ---------- チェックリスト ----------
+
+const item = (label: string, state: CheckItem['state'], note = '', children: CheckItem[] = []): CheckItem => ({ label, state, note, children })
+
+/** 仕様 1 件の「検証すべきこと」と「検証できたこと」。状態は lean_spec_status と同じ判定から作る。 */
+export const checklistOf = (s: Status, c: Check | undefined, allowed: readonly string[], requireMutation: boolean): SpecCard => {
+  const current = s.check !== 'unrun' && s.check !== 'stale' && c !== undefined
+  const theorems = s.spec.theorems.map(name => {
+    const a = current ? c.axioms.find(x => x.theorem === name) : undefined
+    if (a === undefined) return item(name, 'todo')
+    if (!a.found) return item(name, 'fail', '見つからない')
+    const extra = a.axioms.filter(x => !allowed.includes(x))
+    if (extra.length > 0) return item(name, 'fail', `標準外の公理: ${extra.join(', ')}`)
+    return s.check === 'proven' ? item(name, 'done') : item(name, 'todo')
+  })
+  const proof =
+    s.check === 'proven' ? item('定理が証明されている', 'done', '', theorems)
+    : s.check === 'unrun' || s.check === 'stale' ? item('定理が証明されている', 'todo', `${CHECK_LABEL[s.check]}。lean_spec_check を実行する`, theorems)
+    : item('定理が証明されている', 'fail', CHECK_LABEL[s.check], theorems)
+
+  const muts = s.mutations.map(m => item(m.description, m.caught ? 'done' : 'fail', m.caught ? '検出した' : '定理が通ったまま'))
+  const mutation =
+    s.missed.length > 0 ? item('壊した実装を検出できる', 'fail', '検出できなかった壊し方がある。定理を強めるかモデルを直す', muts)
+    : s.caught > 0 ? item('壊した実装を検出できる', 'done', '', muts)
+    : item('壊した実装を検出できる', 'todo', requireMutation ? 'lean_spec_mutation でモデルを壊して確かめる (同期に必要)' : 'lean_spec_mutation でモデルを壊して確かめる', muts)
+
+  const sync =
+    s.sync === 'synced' ? item('モデルが今のコードを表している', 'done', `syncCommit ${s.spec.syncCommit?.slice(0, 8)}`)
+    : s.sync === 'changed' ? item('モデルが今のコードを表している', 'fail', `syncCommit 以降に変わった: ${s.changed.join(', ')}`)
+    : item('モデルが今のコードを表している', 'todo', SYNC_LABEL[s.sync] + (s.sync === 'unsynced' ? '。読み比べてから lean_spec_sync を実行する' : ''))
+
+  return {
+    id: s.spec.id,
+    feature: s.spec.feature,
+    property: s.spec.property,
+    harm: s.spec.harm ?? '',
+    scope: s.spec.scope ?? '',
+    items: [proof, mutation, sync],
+    trusted: isTrusted(s, requireMutation),
+  }
 }
 
 // ---------- 編集の監視 ----------

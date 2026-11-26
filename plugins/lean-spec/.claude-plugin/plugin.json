@@ -6,6 +6,7 @@
   "author": { "name": "UtakataKyosui" },
   "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
   "license": "MIT",
+  "types": "./types/index.d.ts",
   "userConfig": {
     "manifestPath": {
       "type": "string",

@@ -1,8 +1,11 @@
+import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
+
+import type { CheckItem, Checklist } from '../types'
 import {
   type Check, type Config, type Manifest, type Records, type Spec, type Status,
   INIT_FILES, INSTALL_HINT,
-  applyMutation, axiomsProgram, evidenceKey, changedStatements, cheatsInMutation, classifyMutation, coverNote, coveringSpecs, escapeHatches,
+  applyMutation, axiomsProgram, checklistOf, evidenceKey, changedStatements, cheatsInMutation, classifyMutation, coverNote, coveringSpecs, escapeHatches,
   fnv1a, formatCheck, formatJson, formatStatus, guidance, hatchNote, isProjectLean, judge, mutatedLines, parseAxioms, parseManifest,
   mutationKey, parseToolchain, playbook, readConfig, recordMutation, relativeTo, serializeManifest, specKey, statusOf, theoremNote, wantsPlaybook,
 } from './policy'
@@ -13,6 +16,11 @@ const MUTATION = 'mcp__lean-spec__lean_spec_mutation'
 const STATUS = 'mcp__lean-spec__lean_spec_status'
 const SYNC = 'mcp__lean-spec__lean_spec_sync'
 const GIT_TIMEOUT_MS = 30_000
+const PANE = 'lean-spec'
+const PANE_TITLE = '形式検証チェックリスト'
+
+// 項目の形を変えたらタグを変える。前の版が保存した値を初期値として読み捨てる
+const checklist = atom({ plugin: 'lean-spec', key: 'checklist' } as const, { specs: [], message: '読み込み中', updatedAt: '' } as Checklist, { shape: 'checklist-1' })
 
 type Run = { exitCode: number; stdout: string; stderr: string }
 
@@ -120,16 +128,33 @@ async function checkSpec($: any, cfg: Config, root: string, m: Manifest, spec: S
   return judge(buildOut, axioms, cfg.allowedAxioms)
 }
 
-async function statusText($: any, cfg: Config): Promise<string> {
+type Collected = { message?: string; list: Status[]; checks: (Check | undefined)[] }
+
+/** マニフェストの全仕様の状態。マニフェストがない・読めないときは message だけ返す。 */
+async function collect($: any, cfg: Config): Promise<Collected> {
   const root = await rootOf($)
   const r = await loadManifest($, cfg, root)
-  if (r.missing) return `lean-spec: ${cfg.manifestPath} がない。仕様はまだ登録されていない。`
-  if (r.error !== undefined) return `lean-spec: ${r.error}`
+  if (r.missing) return { message: `${cfg.manifestPath} がない。仕様はまだ登録されていない。`, list: [], checks: [] }
+  if (r.error !== undefined) return { message: r.error, list: [], checks: [] }
   const m = r.manifest!
   const recs = await records($, root)
   const list: Status[] = []
   for (const s of m.specs) list.push(statusOf(s, (await evidence($, root, m, s)) ?? '', recs[s.id], await fingerprint($, root, m, s), await changedSince($, root, s)))
-  return formatStatus(list, cfg.requireMutation)
+  return { list, checks: m.specs.map(s => recs[s.id]?.check) }
+}
+
+async function statusText($: any, cfg: Config): Promise<string> {
+  const c = await collect($, cfg)
+  return c.message !== undefined ? `lean-spec: ${c.message}` : formatStatus(c.list, cfg.requireMutation)
+}
+
+/** ペインのチェックリストを今の状態で作り直す。 */
+async function refresh($: any, cfg: Config): Promise<void> {
+  const c = await collect($, cfg).catch(err => ({ message: `状態を読めない: ${String(err)}`, list: [], checks: [] }) as Collected)
+  const specs = c.list.map((s, i) => checklistOf(s, c.checks[i], cfg.allowedAxioms, cfg.requireMutation))
+  const message = c.message ?? (specs.length === 0 ? 'マニフェストに仕様がない。specs に足してから lean_spec_check を実行する。' : '')
+  const updatedAt = new Date(await $.clock.now()).toISOString()
+  await update($, checklist, () => ({ specs, message, updatedAt }))
 }
 
 const pick = (m: Manifest, id: unknown): Spec[] | string => {
@@ -186,8 +211,60 @@ export const register: Register = (on, options) => {
       description: 'モデルが今のコードを表していると確かめたあとに、仕様の syncCommit を HEAD に進める。今の状態で証明済みで、対象コードに未コミットの変更がないときだけ進められる。',
       inputSchema: { type: 'object', properties: { id: { type: 'string', description: '仕様の id' } }, required: ['id'] },
     })
-    await $.command.register({ name: 'lean-spec', description: 'Lean で証明した仕様の状態を一覧する' })
+    await $.command.register({ name: 'lean-spec', description: 'Lean で証明した仕様の状態を一覧し、検証のチェックリストをペインに出す' })
+    void refresh($, cfg)
     return next(e)
+  })
+
+  let opened = false
+  // 先に登録して lean-spec のツールの外側で動かす。ツールのあとはペインのチェックリストを作り直し、対象コード・Lean ファイルの編集を見張る
+  on('tool.call', async ($, e, next) => {
+    const tool = e.tool as string
+    if (tool === INIT || tool === CHECK || tool === MUTATION || tool === SYNC || tool === STATUS) {
+      const ran = await next(e)
+      await refresh($, cfg)
+      if (!opened && ran.deny === undefined) {
+        opened = true
+        void $.ui.open({ id: PANE, title: PANE_TITLE })
+      }
+      return ran
+    }
+    if (tool !== 'Edit' && tool !== 'Write' && tool !== 'MultiEdit') return next(e)
+    const input = e as unknown as { file_path?: string }
+    if (typeof input.file_path !== 'string') return next(e)
+    let root: string
+    let m: Manifest | undefined
+    try {
+      root = await rootOf($)
+      m = (await loadManifest($, cfg, root)).manifest
+    } catch {
+      return next(e)
+    }
+    const rel = m ? relativeTo(root, input.file_path) : null
+    if (!m || rel === null) return next(e)
+    const covering = coveringSpecs(m, rel)
+    const lean = isProjectLean(m, rel)
+    if (covering.length === 0 && !lean) return next(e)
+
+    const before = lean ? String(await $.fs.read(input.file_path).catch(() => '')) : ''
+    const ran = await next(e)
+    if (ran.deny !== undefined || ran.isError === true) return ran
+
+    const notes: string[] = []
+    if (covering.length > 0) {
+      for (const s of covering) touched.add(s.id)
+      notes.push(coverNote(covering))
+    }
+    if (lean) {
+      const after = String(await $.fs.read(input.file_path).catch(() => ''))
+      for (const s of m.specs) touched.add(s.id)
+      const hatches = escapeHatches(after)
+      if (hatches.length > 0) notes.push(hatchNote(hatches))
+      const changed = changedStatements(m.specs, before, after)
+      if (changed.length > 0) notes.push(theoremNote(changed))
+    }
+    await refresh($, cfg)
+    return notes.length ? { ...ran, context: [...(ran.context ?? []), ...notes] } : ran
   })
 
   on('tool.call', { tool: INIT }, async ($, e) => {
@@ -312,7 +389,12 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', { tool: STATUS }, async $ => ({ result: await statusText($, cfg) }))
-  on('command.run', { command: 'lean-spec' }, async $ => ({ text: await statusText($, cfg) }))
+  on('command.run', { command: 'lean-spec' }, async $ => {
+    await refresh($, cfg)
+    opened = true
+    await $.ui.open({ id: PANE, title: PANE_TITLE })
+    return { text: await statusText($, cfg) }
+  })
 
   on('tool.call', { tool: SYNC }, async ($, e) => {
     const root = await rootOf($)
@@ -338,46 +420,6 @@ export const register: Register = (on, options) => {
     return { result: `${spec.id} の syncCommit を ${head.slice(0, 12)} に進めた。マニフェストの変更をコミットすること。` }
   })
 
-  // 対象コード・Lean ファイルの編集を見張る
-  on('tool.call', async ($, e, next) => {
-    const tool = e.tool as string
-    if (tool !== 'Edit' && tool !== 'Write' && tool !== 'MultiEdit') return next(e)
-    const input = e as unknown as { file_path?: string }
-    if (typeof input.file_path !== 'string') return next(e)
-    let root: string
-    let m: Manifest | undefined
-    try {
-      root = await rootOf($)
-      m = (await loadManifest($, cfg, root)).manifest
-    } catch {
-      return next(e)
-    }
-    const rel = m ? relativeTo(root, input.file_path) : null
-    if (!m || rel === null) return next(e)
-    const covering = coveringSpecs(m, rel)
-    const lean = isProjectLean(m, rel)
-    if (covering.length === 0 && !lean) return next(e)
-
-    const before = lean ? String(await $.fs.read(input.file_path).catch(() => '')) : ''
-    const ran = await next(e)
-    if (ran.deny !== undefined || ran.isError === true) return ran
-
-    const notes: string[] = []
-    if (covering.length > 0) {
-      for (const s of covering) touched.add(s.id)
-      notes.push(coverNote(covering))
-    }
-    if (lean) {
-      const after = String(await $.fs.read(input.file_path).catch(() => ''))
-      for (const s of m.specs) touched.add(s.id)
-      const hatches = escapeHatches(after)
-      if (hatches.length > 0) notes.push(hatchNote(hatches))
-      const changed = changedStatements(m.specs, before, after)
-      if (changed.length > 0) notes.push(theoremNote(changed))
-    }
-    return notes.length ? { ...ran, context: [...(ran.context ?? []), ...notes] } : ran
-  })
-
   on('turn.complete', async ($, e, next) => {
     if (touched.size > 0) $.ui.toast(`lean-spec: 対象を編集したあと未検査の仕様がある (${[...touched].join(', ')})。lean_spec_check を実行すること`)
     return next(e)
@@ -397,5 +439,43 @@ export const register: Register = (on, options) => {
       return composed
     }
     return { sections: [...composed.sections, { id: 'lean-spec:guidance', text: guidance, scope: 'session' }] }
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const list = await read($, checklist)
+    const mark = (st: CheckItem['state']) => (st === 'done' ? '[x]' : st === 'fail' ? '[!]' : '[ ]')
+    const tone = (st: CheckItem['state']) => (st === 'done' ? 'success' : st === 'fail' ? 'error' : undefined)
+    const row = (it: CheckItem, depth: number) => (
+      <Box flexDirection="column" paddingLeft={depth * 2}>
+        <Text>
+          <Text color={tone(it.state)}>{mark(it.state)}</Text> {it.label}
+          {it.note !== '' && <Text dimColor> {it.note}</Text>}
+        </Text>
+        {it.children.map(child => row(child, depth + 1))}
+      </Box>
+    )
+    const done = list.specs.filter(s => s.trusted).length
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Box flexDirection="row" justifyContent="space-between">
+          <Text dimColor>{list.specs.length > 0 ? `信頼できる仕様 ${done}/${list.specs.length}` : ''}</Text>
+          <Button key="reload" label="再読込" hotkey="r" onPress={() => refresh($, cfg)} />
+        </Box>
+        {list.message !== '' && <Text dimColor>{list.message}</Text>}
+        {list.specs.map(card => (
+          <Box flexDirection="column">
+            <Text bold>
+              <Text color={card.trusted ? 'success' : 'warning'}>{card.trusted ? '○' : '×'}</Text> {card.id}: {card.feature}
+            </Text>
+            <Text>検証すべきこと: {card.property}</Text>
+            {card.harm !== '' && <Text dimColor>破れたときの害: {card.harm}</Text>}
+            {card.scope !== '' && <Text dimColor>前提と範囲: {card.scope}</Text>}
+            {card.items.map(it => row(it, 0))}
+          </Box>
+        ))}
+      </Box>
+    )
   })
 }
