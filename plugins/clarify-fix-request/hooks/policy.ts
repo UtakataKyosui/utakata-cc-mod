@@ -12,11 +12,63 @@ export const isFixRequest = (text: unknown): boolean => typeof text === 'string'
 /** ファイルを書き換えるツール。 */
 export const EDIT_TOOL = /^(Edit|MultiEdit|Write|NotebookEdit)$/
 
-/** ファイルを書き換える Bash コマンド。/dev/null と fd への出力、=> と -> は除く。 */
-const BASH_WRITE =
-  /\bsed\s+(-[a-zA-Z]*i|--in-place)|\bperl\s+-[a-zA-Z]*i|\btee\b|\bgit\s+(apply|restore|checkout\s+--)\b|\bpatch\b|(^|[^0-9&>=\-])>{1,2}\s*(?!\/dev\/null|&)["']?[\w./~$]/
+/** ヒアドキュメントの本文を消し、引用符の中身を Q に置き換える。本文や引数の中の記号・語を判定に使わないため。 */
+const mask = (command: string): string =>
+  command
+    .replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\n|$)/g, m => m.slice(0, m.indexOf('\n')))
+    .replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, 'Q')
 
-export const isBashWrite = (command: unknown): boolean => typeof command === 'string' && BASH_WRITE.test(command)
+/**
+ * ファイルへの出力リダイレクト（> file、>> file、1> file、2> file、&> file）。
+ * 2>&1 や >&2 のような記述子の複製、/dev/ への出力、=> と -> は除く。
+ */
+const REDIRECT_TO_FILE = /(^|[^<>=\-])(&|\d+)?>>?(?![&>])\s*(?!\/dev\/)[^\s;&|()<>]/
+
+/** コマンド名の前に付く、実行するコマンドを変えない語。 */
+const PREFIX = new Set(['sudo', 'env', 'command', 'exec', 'time', 'nohup', 'xargs'])
+
+/** コマンドの区切り（; && || | 改行 & サブシェル コマンド置換）ごとに、実行するコマンドと引数を取り出す。 */
+const segments = (masked: string): string[][] =>
+  masked
+    .split(/[;&|\n()`]+/)
+    .map(seg => {
+      const words = seg.trim().split(/\s+/).filter(w => w !== '')
+      while (words.length > 0 && (/^\w+=/.test(words[0]!) || PREFIX.has(words[0]!))) words.shift()
+      return words
+    })
+    .filter(words => words.length > 0)
+
+/** git の -C path などのグローバルオプションを飛ばして、サブコマンドから後ろを返す。 */
+const gitArgs = (args: string[]): string[] => {
+  let i = 0
+  while (i < args.length && args[i]!.startsWith('-')) i += /^-(C|c)$|^--(git-dir|work-tree)$/.test(args[i]!) ? 2 : 1
+  return args.slice(i)
+}
+
+const writesFiles = ([cmd, ...args]: string[]): boolean => {
+  switch (cmd?.replace(/^.*\//, '')) {
+    case 'sed':
+      return args.some(a => /^-[a-zA-Z]*i/.test(a) || a.startsWith('--in-place'))
+    case 'perl':
+      return args.some(a => /^-[a-zA-Z]*i/.test(a))
+    case 'tee':
+    case 'patch':
+      return true
+    case 'git': {
+      const [sub, ...rest] = gitArgs(args)
+      return sub === 'apply' || sub === 'restore' || (sub === 'checkout' && rest.includes('--'))
+    }
+    default:
+      return false
+  }
+}
+
+/** ファイルを書き換える Bash コマンドか。 */
+export const isBashWrite = (command: unknown): boolean => {
+  if (typeof command !== 'string') return false
+  const masked = mask(command)
+  return REDIRECT_TO_FILE.test(masked) || segments(masked).some(writesFiles)
+}
 
 export const CONFIRM_TOOL_NAME = 'confirm_fix_request'
 export const CONFIRM_TOOL = /(^|__)confirm_fix_request$/

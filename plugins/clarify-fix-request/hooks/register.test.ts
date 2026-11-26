@@ -46,6 +46,42 @@ test('Bash の書き込み判定', () => {
   expect(isBashWrite('git status')).toBe(false)
 })
 
+test('記述子の番号を付けたファイルへのリダイレクトも書き込みと判定する', () => {
+  expect(isBashWrite('printf changed 1> output.txt')).toBe(true)
+  expect(isBashWrite('cat source.txt 1>> output.txt')).toBe(true)
+  expect(isBashWrite('cmd 2> err.log')).toBe(true)
+  expect(isBashWrite('cmd &> all.log')).toBe(true)
+  expect(isBashWrite('echo hi>out.txt')).toBe(true)
+  expect(isBashWrite('echo a > "$out"')).toBe(true)
+  expect(isBashWrite('cmd >&2')).toBe(false)
+  expect(isBashWrite('cmd 1>&2')).toBe(false)
+  expect(isBashWrite('cmd &>/dev/null')).toBe(false)
+  expect(isBashWrite('diff <(sort a) b')).toBe(false)
+})
+
+test('引数やヒアドキュメントの中の語・記号では書き込みと判定しない', () => {
+  expect(isBashWrite('cat src/patch.ts')).toBe(false)
+  expect(isBashWrite('rg patch src')).toBe(false)
+  expect(isBashWrite('rg tee src')).toBe(false)
+  expect(isBashWrite('rg "a > b" src')).toBe(false)
+  expect(isBashWrite('echo $(cat patch.txt)')).toBe(false)
+  expect(isBashWrite("git log --grep 'sed -i'")).toBe(false)
+  expect(isBashWrite("cat <<'EOF' | head\na > b\npatch\nEOF")).toBe(false)
+  expect(isBashWrite("cat <<'EOF' > x.md\nbody\nEOF")).toBe(true)
+})
+
+test('コマンドの位置にある書き込みコマンドを判定する', () => {
+  expect(isBashWrite('ls && patch -p1 < p.diff')).toBe(true)
+  expect(isBashWrite('FOO=1 sed -i s/a/b/ x')).toBe(true)
+  expect(isBashWrite('sudo /usr/bin/sed --in-place=.bak s/a/b/ x')).toBe(true)
+  expect(isBashWrite('perl -pi -e s/a/b/ x')).toBe(true)
+  expect(isBashWrite('echo a | tee x.txt')).toBe(true)
+  expect(isBashWrite('git -C repo apply p.diff')).toBe(true)
+  expect(isBashWrite('git checkout -- a.css')).toBe(true)
+  expect(isBashWrite('git checkout main')).toBe(false)
+  expect(isBashWrite('sed -n 1,10p x')).toBe(false)
+})
+
 test('確認ツールの入力の判定', () => {
   const prompt = 'えっと、ボタンの色を 赤に変えて ほしい'
   expect(judgeSpec(readSpec(spec), prompt).ok).toBe(true)
