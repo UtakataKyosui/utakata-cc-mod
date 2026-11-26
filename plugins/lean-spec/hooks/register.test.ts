@@ -94,6 +94,8 @@ test('壊し方: 一意な置き換えだけを受け付け、構文エラーは
   expect(classifyMutation('proven', [], 'v/Spec/A.lean', range)).toBe('missed')
   expect(classifyMutation('error', [{ severity: 'error', file: 'Spec/A.lean', line: 3, col: 0, message: 'unexpected token' }], 'v/Spec/A.lean', range)).toBe('invalid')
   expect(classifyMutation('error', [{ severity: 'error', file: 'Spec/A.lean', line: 9, col: 0, message: 'unsolved goals' }], 'v/Spec/A.lean', range)).toBe('caught')
+  expect(classifyMutation('error', [], 'v/Spec/A.lean', range)).toBe('inconclusive')
+  expect(classifyMutation('missing', [], 'v/Spec/A.lean', range)).toBe('inconclusive')
 })
 
 test('実際の Lean 4.36 の出力: 証明済み・反例・sorry・構文エラーを正しく分ける', () => {
@@ -209,6 +211,8 @@ const setup = (on: any, over: Partial<World> = {}): World => {
       if (sub === 'env') return ok(w.axiomOut)
       if (sub === 'build') {
         const model = w.files[LEAN] ?? ''
+        if (/crash!/.test(model)) return ok('', 137)
+        if (/\|>\.map id/.test(model) && /-- strengthened/.test(model)) return ok('error: ./././Spec/Account.lean:9:2: unsolved goals', 1)
         if (/if a ≤ b then/.test(model)) return ok('✔ [3/3] Built Spec.Account')
         if (/oops\(/.test(model)) return ok('error: ./././Spec/Account.lean:2:5: unexpected token \'(\'', 1)
         return ok('error: ./././Spec/Account.lean:9:2: unsolved goals\nb a : Nat\n⊢ False', 1)
@@ -365,4 +369,40 @@ test('/lean-spec で状態を一覧する', async ($: any, on: any) => {
   const r = await $.command.run({ command: 'lean-spec', args: '' })
   expect(r.text).toContain('| withdraw |')
   expect(r.text).toContain('未検査')
+})
+
+test('レビュー対応: 検査後にマニフェストの定理を差し替えると、証明済みのまま同期できない', async ($: any, on: any) => {
+  const w = setup(on)
+  await call($, CHECK)
+  await mutate($, 'if a ≤ b then', 'if true then')
+  const path = `${ROOT}/.claude/lean-spec.json`
+  w.files[path] = JSON.stringify({ project: 'verification/lean', specs: [{ ...SPEC, theorems: ['Spec.Account.does_not_exist'] }] })
+  const status = (await call($, STATUS)).result as string
+  expect(status).toContain('検査後に変更あり')
+  expect(status).toContain('| 未確認 |')
+  expect((await call($, SYNC, { id: 'withdraw' })).deny).toContain('lean_spec_check')
+})
+
+test('レビュー対応: 検出漏れのあと定理を直して同じ壊し方で検出できれば、同期できる', async ($: any, on: any) => {
+  const w = setup(on)
+  await call($, CHECK)
+  expect((await mutate($, 'some (b - a)', 'some (b - a) |>.map id', '結果を恒等写像に通す')).result).toContain('検出できなかった')
+  expect((await call($, SYNC, { id: 'withdraw' })).deny).toContain('検出できなかった壊し方')
+  w.files[LEAN] = `${GOOD_MODEL}-- strengthened\n`
+  await call($, CHECK)
+  expect((await mutate($, 'some (b - a)', 'some (b - a) |>.map id', '結果を恒等写像に通す')).result).toContain('検出した')
+  const status = (await call($, STATUS)).result as string
+  expect(status).toContain('検出 1')
+  expect(status).not.toContain('検出漏れ')
+  expect((await call($, SYNC, { id: 'withdraw' })).result).toContain('syncCommit')
+})
+
+test('レビュー対応: 診断のないビルド失敗 (タイムアウト・起動失敗) は検出として数えない', async ($: any, on: any) => {
+  const w = setup(on)
+  await call($, CHECK)
+  const r = (await mutate($, 'if a ≤ b then', 'if crash! then')).result as string
+  expect(r).toContain('判定できなかった')
+  expect(w.files[LEAN]).toBe(GOOD_MODEL)
+  expect((await call($, STATUS)).result).toContain('| 未確認 |')
+  expect((await call($, SYNC, { id: 'withdraw' })).deny).toContain('lean_spec_mutation')
 })

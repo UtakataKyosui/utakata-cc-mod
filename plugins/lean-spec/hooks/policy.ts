@@ -255,7 +255,27 @@ export const formatCheck = (spec: Spec, c: Check, allowed: readonly string[], ta
 
 // ---------- 壊れた実装の検出 (Able to fail) ----------
 
-export type Mutation = { description: string; file: string; caught: boolean; at: string }
+/** key は壊し方の識別子 (ファイル・置き換え前後)、spec はそのとき検査した仕様キー。 */
+export type Mutation = { key: string; spec: string; description: string; file: string; caught: boolean; at: string }
+
+/** 非暗号用の FNV-1a。変更状態と仕様の比較にだけ使う。 */
+export const fnv1a = (text: string): string => {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h.toString(16).padStart(8, '0')
+}
+
+/** 検証の結果を左右する仕様のフィールド。syncCommit や説明文は含めない。 */
+export const specKey = (m: Manifest, spec: Spec): string =>
+  fnv1a(JSON.stringify([m.project, spec.module, spec.theorems, spec.covers]))
+
+export const mutationKey = (file: string, find: string, replace: string): string => fnv1a(JSON.stringify([file, find, replace]))
+
+/** 同じ壊し方の記録は最新の 1 件に置き換える。 */
+export const recordMutation = (list: readonly Mutation[], m: Mutation): Mutation[] => [...list.filter(x => x.key !== m.key), m]
 
 export const applyMutation = (text: string, find: string, replace: string): { text?: string; error?: string } => {
   if (find === '') return { error: 'find が空' }
@@ -283,9 +303,10 @@ export const classifyMutation = (
   errors: Diagnostic[],
   fileRel: string,
   range: { from: number; to: number },
-): 'caught' | 'missed' | 'invalid' => {
+): 'caught' | 'missed' | 'invalid' | 'inconclusive' => {
   if (verdict === 'proven') return 'missed'
-  if (verdict !== 'error' || errors.length === 0) return 'caught'
+  // 診断のない失敗 (タイムアウト・起動失敗) や定理が見つからない場合は、定理が反例を捉えたとは言えない
+  if (verdict !== 'error' || errors.length === 0) return 'inconclusive'
   // 置き換えた行が読めないと、後ろの定理にも連鎖してエラーが出る。範囲内に構文・名前のエラーが 1 つでもあれば試せていない
   const broken = errors.some(d =>
     fileRel.endsWith(d.file.replace(/^\.\//, '')) && d.line >= range.from && d.line <= range.to &&
@@ -314,11 +335,12 @@ export type Status = {
   missed: Mutation[]
 }
 
-export const statusOf = (spec: Spec, rec: Record_ | undefined, now: string | null, changed: string[] | null): Status => {
+export const statusOf = (spec: Spec, key: string, rec: Record_ | undefined, now: string | null, changed: string[] | null): Status => {
   const c = rec?.check
   const check: Status['check'] = c === undefined ? 'unrun' : now === null || c.fingerprint !== now ? 'stale' : c.verdict
   const sync: Status['sync'] = spec.syncCommit === undefined ? 'unsynced' : changed === null ? 'unknown' : changed.length > 0 ? 'changed' : 'synced'
-  const muts = rec?.mutations ?? []
+  // 定理や対象が変わる前の記録は、今の仕様の証拠にならない
+  const muts = (rec?.mutations ?? []).filter(m => m.spec === key)
   return { spec, check, sync, changed: changed ?? [], caught: muts.filter(m => m.caught).length, missed: muts.filter(m => !m.caught) }
 }
 

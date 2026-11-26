@@ -3,8 +3,8 @@ import {
   type Check, type Config, type Manifest, type Records, type Spec, type Status,
   INIT_FILES, INSTALL_HINT,
   applyMutation, axiomsProgram, changedStatements, cheatsInMutation, classifyMutation, coverNote, coveringSpecs, escapeHatches,
-  formatCheck, formatJson, formatStatus, guidance, hatchNote, isProjectLean, judge, mutatedLines, parseAxioms, parseManifest,
-  parseToolchain, playbook, readConfig, relativeTo, serializeManifest, statusOf, theoremNote, wantsPlaybook,
+  fnv1a, formatCheck, formatJson, formatStatus, guidance, hatchNote, isProjectLean, judge, mutatedLines, parseAxioms, parseManifest,
+  mutationKey, parseToolchain, playbook, readConfig, recordMutation, relativeTo, serializeManifest, specKey, statusOf, theoremNote, wantsPlaybook,
 } from './policy'
 
 const INIT = 'mcp__lean-spec__lean_spec_init'
@@ -29,15 +29,6 @@ const git = async ($: any, root: string, args: string[]): Promise<string | null>
   return r !== null && r.exitCode === 0 ? r.stdout : null
 }
 
-const fnv1a = (text: string): string => {
-  let h = 0x811c9dc5
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i)
-    h = Math.imul(h, 0x01000193) >>> 0
-  }
-  return h.toString(16).padStart(8, '0')
-}
-
 /** 仕様に関わるファイル (Lean プロジェクトと対象コード) の変更状態。git で取れなければ null。 */
 async function fingerprint($: any, root: string, m: Manifest, spec: Spec): Promise<string | null> {
   const paths = ['--', m.project, ...spec.covers]
@@ -47,7 +38,7 @@ async function fingerprint($: any, root: string, m: Manifest, spec: Spec): Promi
   if (head === null || status === null || diff === null) return null
   const untracked = status.split('\n').filter(l => l.startsWith('?? ')).map(l => l.slice(3))
   const bodies = await Promise.all(untracked.slice(0, 200).map(p => $.fs.read(`${root}/${p}`).catch(() => '')))
-  return fnv1a([head, status, diff, ...bodies].join('\u0000'))
+  return fnv1a([specKey(m, spec), head, status, diff, ...bodies].join('\u0000'))
 }
 
 /** syncCommit 以降に変わった対象コード (作業ツリーを含む)。比べられなければ null。 */
@@ -122,7 +113,7 @@ async function statusText($: any, cfg: Config): Promise<string> {
   const m = r.manifest!
   const recs = await records($, root)
   const list: Status[] = []
-  for (const s of m.specs) list.push(statusOf(s, recs[s.id], await fingerprint($, root, m, s), await changedSince($, root, s)))
+  for (const s of m.specs) list.push(statusOf(s, specKey(m, s), recs[s.id], await fingerprint($, root, m, s), await changedSince($, root, s)))
   return formatStatus(list, cfg.requireMutation)
 }
 
@@ -261,7 +252,7 @@ export const register: Register = (on, options) => {
     if (rel === null || !isProjectLean(m, rel)) return { deny: `file は ${m.project} 内の .lean ファイルを渡すこと` }
 
     const recs = await records($, root)
-    const before = statusOf(spec, recs[spec.id], await fingerprint($, root, m, spec), [])
+    const before = statusOf(spec, specKey(m, spec), recs[spec.id], await fingerprint($, root, m, spec), [])
     if (before.check !== 'proven') return { deny: '壊す前の状態で証明済みになっていない。先に lean_spec_check を通すこと (失敗が壊したせいか元からかを区別できないため)' }
 
     const lakeBin = await findLake($, cfg)
@@ -286,8 +277,13 @@ export const register: Register = (on, options) => {
         result: `壊したモデルが構文・名前のエラーで読めず、性質を試せていない (記録しない)。型が合う形で振る舞いだけを変えること。\n${result.errors.map(d => `${d.file}:${d.line}: ${d.message}`).join('\n')}`,
       }
     }
+    if (kind === 'inconclusive') {
+      const why = result.detail ?? (result.verdict === 'missing' ? '定理が見つからなかった' : `判定 ${result.verdict}`)
+      return { result: `判定できなかった (記録しない): ${why}。タイムアウトや lake の起動失敗なら、原因を除いてから同じ壊し方でやり直すこと。${rel} は元に戻した。` }
+    }
     const caught = kind === 'caught'
-    recs[spec.id] = { ...(recs[spec.id] ?? {}), mutations: [...(recs[spec.id]?.mutations ?? []), { description, file: rel, caught, at: new Date(await $.clock.now()).toISOString() }] }
+    const record = { key: mutationKey(rel, input.find, input.replace), spec: specKey(m, spec), description, file: rel, caught, at: new Date(await $.clock.now()).toISOString() }
+    recs[spec.id] = { ...(recs[spec.id] ?? {}), mutations: recordMutation(recs[spec.id]?.mutations ?? [], record) }
     await saveRecords($, root, recs)
     if (caught) {
       const why = result.errors.slice(0, 3).map(d => `- ${d.file}:${d.line}: ${d.message.split('\n')[0]}`).join('\n')
@@ -312,7 +308,7 @@ export const register: Register = (on, options) => {
     if (dirty === null) return { deny: 'git で対象コードの状態を確かめられない' }
     if (dirty.trim() !== '') return { deny: `対象コードに未コミットの変更がある。コミットしてから同期すること:\n${dirty.trim()}` }
     const recs = await records($, root)
-    const s = statusOf(spec, recs[spec.id], await fingerprint($, root, m, spec), [])
+    const s = statusOf(spec, specKey(m, spec), recs[spec.id], await fingerprint($, root, m, spec), [])
     if (s.check !== 'proven') return { deny: '今の状態で証明済みになっていない。lean_spec_check を通してから同期すること' }
     if (s.missed.length > 0) return { deny: '検出できなかった壊し方が記録されている。定理かモデルを直し、同じ壊し方で検出できることを確かめてから同期すること' }
     if (cfg.requireMutation && s.caught === 0) return { deny: '壊した実装を検出できることをまだ確かめていない。lean_spec_mutation を 1 回以上通してから同期すること' }
