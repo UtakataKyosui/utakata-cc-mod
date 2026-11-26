@@ -1,0 +1,16 @@
+{
+  "name": "utakata-cc-mod-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync": "node scripts/sync.ts",
+    "dev": "node scripts/sync.ts && blume dev",
+    "build": "node scripts/sync.ts && blume build",
+    "preview": "blume preview"
+  },
+  "engines": { "node": ">=22.19.0" },
+  "packageManager": "pnpm@12.8.1",
+  "devDependencies": {
+    "blume": "2.2.7"
+  }
+}
