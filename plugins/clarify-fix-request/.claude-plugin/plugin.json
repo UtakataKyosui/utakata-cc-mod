@@ -1,0 +1,9 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "clarify-fix-request",
+  "version": "0.1.0",
+  "description": "修正依頼を受けたら、何をどう直すかが決まるまでファイルの編集を止め、曖昧な点を AskUserQuestion で聞き返させる",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT"
+}
