@@ -124,6 +124,11 @@
       "name": "repo-storage-manager",
       "source": "./plugins/repo-storage-manager",
       "description": "ローカルのGitリポジトリと生成物の容量・活動状況・保全リスクを解析し、明示承認付きで整理・退避する"
+    },
+    {
+      "name": "clarify-fix-request",
+      "source": "./plugins/clarify-fix-request",
+      "description": "修正依頼を受けたら、何をどう直すかが決まるまでファイルの編集を止め、曖昧な点を AskUserQuestion で聞き返させる"
     }
   ]
 }
