@@ -157,6 +157,7 @@ type World = {
   axiomOut: string
   toasts: string[]
   runs: string[][]
+  opened: string[]
 }
 
 const setup = (on: any, over: Partial<World> = {}): World => {
@@ -172,6 +173,7 @@ const setup = (on: any, over: Partial<World> = {}): World => {
     axiomOut: "'Spec.Account.withdraw_nonneg' depends on axioms: [propext]\n'Spec.Account.withdraw_succeeds' does not depend on any axioms",
     toasts: [],
     runs: [],
+    opened: [],
     ...over,
   }
   const kv = new Map<string, unknown>()
@@ -191,6 +193,10 @@ const setup = (on: any, over: Partial<World> = {}): World => {
   on('fs.write', (_$: unknown, e: { path: string; text: string }) => {
     w.files[e.path] = e.text
     return { value: undefined }
+  })
+  on('ui.open', (_$: unknown, e: { id: string }) => {
+    w.opened.push(e.id)
+    return { value: { isPlaced: true } }
   })
   on('ui.toast', (_$: unknown, e: { text?: string }) => {
     w.toasts.push(e.text ?? '')
@@ -437,4 +443,76 @@ test('レビュー対応: 置き換えた行の型エラー (インスタンス�
   expect(r).toContain('failed to synthesize')
   expect(w.files[LEAN]).toBe(GOOD_MODEL)
   expect((await call($, STATUS)).result).toContain('| 未確認 |')
+})
+
+// ---------- チェックリストのペイン ----------
+
+const PANE = {
+  plugin: 'lean-spec',
+  component: 'Pane',
+  requestId: 'lean-spec',
+  props: { title: '形式検証チェックリスト', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+} as const
+
+const texts = async (ui: any): Promise<string[]> => ((await ui.findAll({ type: 'Text' })) as { text: string }[]).map(t => t.text)
+
+test('ペイン: 検証すべきことと、検証できたことをチェックリストで出す', async ($: any, on: any) => {
+  const w = setup(on)
+  await $.command.run({ command: 'lean-spec', args: '' })
+  expect(w.opened).toEqual(['lean-spec'])
+  let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  let all = await texts(ui)
+  expect(all).toContain('× withdraw: 口座からの引き出し')
+  expect(all.some(t => t.startsWith('検証すべきこと: '))).toBe(true)
+  expect(all.some(t => t.startsWith('[ ] 定理が証明されている') && t.includes('lean_spec_check'))).toBe(true)
+  expect(all).toContain('[ ] Spec.Account.withdraw_succeeds')
+  expect(all.some(t => t.startsWith('[ ] 壊した実装を検出できる'))).toBe(true)
+  await ui.unmount()
+
+  await call($, CHECK)
+  await mutate($, 'if a ≤ b then', 'if true then')
+  await call($, SYNC, { id: 'withdraw' })
+  ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  all = await texts(ui)
+  expect(all).toContain('○ withdraw: 口座からの引き出し')
+  expect(all).toContain('信頼できる仕様 1/1')
+  expect(all).toContain('[x] 定理が証明されている')
+  expect(all).toContain('[x] Spec.Account.withdraw_succeeds')
+  expect(all).toContain('[x] 壊した実装を検出できる')
+  expect(all).toContain('[x] 残高不足のチェックを外す 検出した')
+  expect(all.some(t => t.startsWith('[x] モデルが今のコードを表している'))).toBe(true)
+  await ui.unmount()
+})
+
+test('ペイン: 検出漏れと、同期後のコードの変更を [!] で出す', async ($: any, on: any) => {
+  const w = setup(on)
+  await call($, CHECK)
+  expect(w.opened).toEqual(['lean-spec'])
+  await mutate($, 'some (b - a)', 'some (b - a) |>.map id', '結果を恒等写像に通す')
+  let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  let all = await texts(ui)
+  expect(all.some(t => t.startsWith('[!] 壊した実装を検出できる'))).toBe(true)
+  expect(all).toContain('[!] 結果を恒等写像に通す 定理が通ったまま')
+  await ui.unmount()
+
+  await mutate($, 'if a ≤ b then', 'if true then')
+  w.files[LEAN] = `${GOOD_MODEL}-- strengthened\n`
+  await call($, CHECK)
+  await mutate($, 'if a ≤ b then', 'if true then')
+  await call($, SYNC, { id: 'withdraw' })
+  w.changed = 'src/account.ts\n'
+  await call($, STATUS)
+  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  all = await texts(ui)
+  expect(all.some(t => t.startsWith('[!] モデルが今のコードを表している') && t.includes('src/account.ts'))).toBe(true)
+  expect(all).toContain('× withdraw: 口座からの引き出し')
+  await ui.unmount()
+})
+
+test('ペイン: マニフェストがなければその旨を出す', async ($: any, on: any) => {
+  setup(on, { files: {} })
+  await $.command.run({ command: 'lean-spec', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await texts(ui)).some(t => t.includes('lean-spec.json がない'))).toBe(true)
+  await ui.unmount()
 })

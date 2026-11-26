@@ -32,7 +32,7 @@ curl https://elan.lean-lang.org/elan-init.sh -sSf | sh -s -- -y --default-toolch
 | `lean_spec_init` | lake プロジェクト (`lakefile.toml`・`lean-toolchain`・ルートモジュール・`.gitignore`) と空のマニフェストを作る。toolchain は手元の `lean --version` に固定する。既存のファイルは上書きしない |
 | `lean_spec_check` | `lake build <module>` のあと、`lake env lean --stdin` で各定理に `#print axioms` を実行して記録する |
 | `lean_spec_mutation` | Lean ファイルの一意な文字列を置き換えて検査し、ファイルを元に戻す。検出できたか、できなかったかを記録する |
-| `lean_spec_status` | 仕様ごとの証明・壊した実装の検出・同期の状態を表で返す。`/lean-spec` でも表示する |
+| `lean_spec_status` | 仕様ごとの証明・壊した実装の検出・同期の状態を表で返す。`/lean-spec` でも表示し、チェックリストのペインを開く |
 | `lean_spec_sync` | syncCommit を HEAD に進めてマニフェストを書き換える |
 
 `lean_spec_check` の判定は次のとおり。「証明済み」になるのは最後の行の場合だけ。
@@ -52,6 +52,25 @@ curl https://elan.lean-lang.org/elan-init.sh -sSf | sh -s -- -y --default-toolch
 - 今の変更状態で証明済み
 - 壊した実装の検出が 1 回以上あり (`requireMutation`)、検出できなかった記録がない
 - 対象コードに未コミットの変更がない
+
+## チェックリストのペイン
+
+`/lean-spec` を実行すると、Claude Code の横のペイン「形式検証チェックリスト」に、仕様ごとの検証すべきことと検証できたことを出す。lean-spec のツールを初めて使ったときにも、そのセッションで 1 回だけ開く。
+
+```
+信頼できる仕様 0/1                [ 再読込 ]
+
+× withdraw: 口座からの引き出し
+検証すべきこと: 残高が足りていれば引き出しは成功し、成功したら残高はちょうど引き出し額だけ減る
+前提と範囲: 残高と金額は 0 以上の整数。並行する引き出しは扱わない
+[x] 定理が証明されている
+  [x] Spec.Account.withdraw_exact
+  [x] Spec.Account.withdraw_succeeds
+[ ] 壊した実装を検出できる lean_spec_mutation でモデルを壊して確かめる (同期に必要)
+[!] モデルが今のコードを表している syncCommit 以降に変わった: src/account.ts
+```
+
+上半分はマニフェストの `property`・`harm`・`scope` で、下の 3 項目が検証の結果になる。`[x]` は確かめられた項目、`[ ]` はまだ確かめていない項目、`[!]` は確かめた結果が失敗だった項目。判定は `lean_spec_status` と同じで、3 項目がすべて `[x]` なら仕様の頭に `○` が付く。ペインは lean-spec のツールの実行後と、対象コード・Lean ファイルの編集後に作り直す。それ以外の変更 (手でのコミットなど) は「再読込」(`r`) で反映する。
 
 ## マニフェスト
 
