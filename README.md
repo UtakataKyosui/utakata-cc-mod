@@ -41,6 +41,7 @@ Claude Modのフックを実行できるClaude Code環境が必要。
 | [act-now-guard](plugins/act-now-guard/README.md) | 計画フェーズの要らない依頼で EnterPlanMode や Plan エージェントに入ろうとしたら止め、すぐ実装に着手させる（判定は LocalJev） |
 | [agent-router](plugins/agent-router/README.md) | サブエージェントと Workflow の agent() の依頼を LocalJev でロールに分類し、roles.json に従って model と effort を切り替える |
 | [repo-storage-manager](plugins/repo-storage-manager/README.md) | ローカルのGitリポジトリの容量・最終コミット・保全リスク・生成物候補を解析し、計画 (Dry Run) を作り、利用者の明示承認があるときだけ整理・退避する。解析は読み取り専用。/repo-storage で実行 |
+| [lean-spec](plugins/lean-spec/README.md) | 機能が何をできるべきかを Lean 4 の定理として書かせ、sorry・標準外の公理なしの証明、壊した実装の検出、対象コードとの同期を記録する。/lean-spec で状態を表示 |
 | [clarify-fix-request](plugins/clarify-fix-request/README.md) | 修正依頼を受けたら、何をどう直すかが決まるまでファイルの編集を止め、曖昧な点を AskUserQuestion で聞き返させる。完了報告では確認した解釈と変更前→変更後を示させる |
 
 ## 組み合わせ
@@ -49,7 +50,7 @@ Claude Modのフックを実行できるClaude Code環境が必要。
 
 - 委譲: goal-orchestratorで手順を渡し、subagent-routerでモデルを選び、execution-budgetで起動を制限する。
 - 状態管理: auto-compactで会話を圧縮し、task-checkpointで明示的に記録したタスク台帳を復元する。
-- 品質確認: verification-gateで検証コマンドを実行し、その結果をchange-reviewへの依頼に含める。
+- 品質確認: verification-gateで検証コマンドを実行し、その結果をchange-reviewへの依頼に含める。テストで届かない性質はlean-specでLeanの定理として証明する。
 - 調査と知識: code-finder、ctxpack-fetch、source-citation、notion-knowledgeを使い、trust-boundaryで対象の送信と操作を検査する。
 - 並列実装: workspace-isolationで作業領域と統合を管理する。
 - 操作の安全: approval-guardで不可逆操作の宛先を確かめる。

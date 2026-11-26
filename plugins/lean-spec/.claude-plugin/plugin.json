@@ -1,0 +1,57 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "lean-spec",
+  "version": "0.1.0",
+  "description": "機能が何をできるべきかを Lean 4 の定理として書き、sorry・標準外の公理なしの証明、壊した実装の検出、対象コードとの同期までを確かめさせる形式検証Mod",
+  "author": { "name": "UtakataKyosui" },
+  "repository": "https://github.com/UtakataKyosui/utakata-cc-mod",
+  "license": "MIT",
+  "userConfig": {
+    "manifestPath": {
+      "type": "string",
+      "title": "仕様のマニフェストのパス",
+      "description": "リポジトリ相対。Lean プロジェクトの場所と、仕様ごとの性質・定理・対象コード・syncCommit を書く",
+      "default": ".claude/lean-spec.json"
+    },
+    "lakeCommand": {
+      "type": "string",
+      "title": "lake コマンド",
+      "description": "PATH で見つからなければ ~/.elan/bin/lake も試す",
+      "default": "lake"
+    },
+    "timeoutSec": {
+      "type": "number",
+      "title": "lake build のタイムアウト (秒)",
+      "description": "1 回のビルドと #print axioms の実行それぞれの上限。Mathlib を使う初回は長くかかる",
+      "default": 600,
+      "min": 10,
+      "max": 1800
+    },
+    "allowedAxioms": {
+      "type": "string",
+      "title": "許可する公理 (カンマ区切り)",
+      "description": "定理がこれ以外の公理に依存したら「証明済み」にしない。sorryAx は常に不可",
+      "default": "propext,Classical.choice,Quot.sound"
+    },
+    "outputTailChars": {
+      "type": "number",
+      "title": "エラー出力の上限 (文字)",
+      "description": "検査結果に含める Lean のエラーの長さ",
+      "default": 3000,
+      "min": 200,
+      "max": 20000
+    },
+    "requireMutation": {
+      "type": "boolean",
+      "title": "同期の前に壊した実装の検出を必須にする",
+      "description": "true なら lean_spec_mutation で 1 回以上検出できるまで syncCommit を進めない",
+      "default": true
+    },
+    "autoPlaybook": {
+      "type": "boolean",
+      "title": "形式検証の依頼に手順書を付ける",
+      "description": "プロンプトに「形式検証」「Lean」「証明して」などがあると、性質の書き方から報告までの手順を context で渡す",
+      "default": true
+    }
+  }
+}

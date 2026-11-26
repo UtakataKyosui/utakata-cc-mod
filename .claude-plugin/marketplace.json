@@ -126,6 +126,11 @@
       "description": "ローカルのGitリポジトリと生成物の容量・活動状況・保全リスクを解析し、明示承認付きで整理・退避する"
     },
     {
+      "name": "lean-spec",
+      "source": "./plugins/lean-spec",
+      "description": "機能が何をできるべきかを Lean 4 の定理として書かせ、sorry・標準外の公理なしの証明、壊した実装の検出、対象コードとの同期を記録する"
+    },
+    {
       "name": "clarify-fix-request",
       "source": "./plugins/clarify-fix-request",
       "description": "修正依頼を受けたら、何をどう直すかが決まるまでファイルの編集を止め、曖昧な点を AskUserQuestion で聞き返させる"
