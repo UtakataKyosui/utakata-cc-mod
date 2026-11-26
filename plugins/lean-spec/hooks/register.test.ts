@@ -94,6 +94,7 @@ test('壊し方: 一意な置き換えだけを受け付け、構文エラーは
   expect(classifyMutation('proven', [], 'v/Spec/A.lean', range)).toBe('missed')
   expect(classifyMutation('error', [{ severity: 'error', file: 'Spec/A.lean', line: 3, col: 0, message: 'unexpected token' }], 'v/Spec/A.lean', range)).toBe('invalid')
   expect(classifyMutation('error', [{ severity: 'error', file: 'Spec/A.lean', line: 9, col: 0, message: 'unsolved goals' }], 'v/Spec/A.lean', range)).toBe('caught')
+  expect(classifyMutation('error', [{ severity: 'error', file: 'Spec/A.lean', line: 3, col: 0, message: 'failed to synthesize\n  OfNat (Option Nat) 0' }], 'v/Spec/A.lean', range)).toBe('invalid')
   expect(classifyMutation('error', [], 'v/Spec/A.lean', range)).toBe('inconclusive')
   expect(classifyMutation('missing', [], 'v/Spec/A.lean', range)).toBe('inconclusive')
 })
@@ -203,6 +204,10 @@ const setup = (on: any, over: Partial<World> = {}): World => {
       if (sub === 'rev-parse') return ok(`${w.head}\n`)
       if (sub === 'status') return ok(w.status)
       if (sub === 'diff') return e.argv.includes('--name-only') ? ok(w.changed) : ok(w.status === '' ? '' : `diff ${w.status}`)
+      if (sub === 'ls-files' && e.argv.includes('-co')) {
+        const dir = `${ROOT}/${e.argv[e.argv.length - 1]}/`
+        return ok(Object.keys(w.files).filter(p => p.startsWith(dir)).map(p => p.slice(ROOT.length + 1)).join('\n'))
+      }
       return ok('')
     }
     if (cmd === 'lake') {
@@ -213,6 +218,7 @@ const setup = (on: any, over: Partial<World> = {}): World => {
         const model = w.files[LEAN] ?? ''
         if (/crash!/.test(model)) return ok('', 137)
         if (/\|>\.map id/.test(model) && /-- strengthened/.test(model)) return ok('error: ./././Spec/Account.lean:9:2: unsolved goals', 1)
+        if (/then 0 else/.test(model)) return ok('error: ./././Spec/Account.lean:2:16: failed to synthesize\n  OfNat (Option Nat) 0\nnumerals are polymorphic in Lean', 1)
         if (/if a ≤ b then/.test(model)) return ok('✔ [3/3] Built Spec.Account')
         if (/oops\(/.test(model)) return ok('error: ./././Spec/Account.lean:2:5: unexpected token \'(\'', 1)
         return ok('error: ./././Spec/Account.lean:9:2: unsolved goals\nb a : Nat\n⊢ False', 1)
@@ -405,4 +411,30 @@ test('レビュー対応: 診断のないビルド失敗 (タイムアウト・�
   expect(w.files[LEAN]).toBe(GOOD_MODEL)
   expect((await call($, STATUS)).result).toContain('| 未確認 |')
   expect((await call($, SYNC, { id: 'withdraw' })).deny).toContain('lean_spec_mutation')
+})
+
+test('レビュー対応: 検出したあとに Lean のソースを変えると、以前の検出は証拠に数えない', async ($: any, on: any) => {
+  const w = setup(on)
+  await call($, CHECK)
+  expect((await mutate($, 'if a ≤ b then', 'if true then')).result).toContain('検出した')
+  expect((await call($, STATUS)).result).toContain('検出 1')
+  // 名前を変えずに定理やモデルを書き換え、検査し直しても、壊した実装の検出はやり直しになる
+  w.files[LEAN] = `${GOOD_MODEL}-- weakened\n`
+  await call($, CHECK)
+  const status = (await call($, STATUS)).result as string
+  expect(status).toContain('証明済み')
+  expect(status).toContain('| 未確認 |')
+  expect((await call($, SYNC, { id: 'withdraw' })).deny).toContain('lean_spec_mutation')
+  expect((await mutate($, 'if a ≤ b then', 'if true then')).result).toContain('検出した')
+  expect((await call($, SYNC, { id: 'withdraw' })).result).toContain('syncCommit')
+})
+
+test('レビュー対応: 置き換えた行の型エラー (インスタンス合成の失敗) は検出として数えない', async ($: any, on: any) => {
+  const w = setup(on)
+  await call($, CHECK)
+  const r = (await mutate($, 'some (b - a)', '0', '成功時に 0 を返す')).result as string
+  expect(r).toContain('記録しない')
+  expect(r).toContain('failed to synthesize')
+  expect(w.files[LEAN]).toBe(GOOD_MODEL)
+  expect((await call($, STATUS)).result).toContain('| 未確認 |')
 })

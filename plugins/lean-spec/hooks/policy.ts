@@ -255,7 +255,7 @@ export const formatCheck = (spec: Spec, c: Check, allowed: readonly string[], ta
 
 // ---------- 壊れた実装の検出 (Able to fail) ----------
 
-/** key は壊し方の識別子 (ファイル・置き換え前後)、spec はそのとき検査した仕様キー。 */
+/** key は壊し方の識別子 (ファイル・置き換え前後)、spec はそのときの証拠キー (evidenceKey)。 */
 export type Mutation = { key: string; spec: string; description: string; file: string; caught: boolean; at: string }
 
 /** 非暗号用の FNV-1a。変更状態と仕様の比較にだけ使う。 */
@@ -271,6 +271,9 @@ export const fnv1a = (text: string): string => {
 /** 検証の結果を左右する仕様のフィールド。syncCommit や説明文は含めない。 */
 export const specKey = (m: Manifest, spec: Spec): string =>
   fnv1a(JSON.stringify([m.project, spec.module, spec.theorems, spec.covers]))
+
+/** 壊した実装の記録が証拠になる範囲。仕様キーと、壊す前の Lean ソースの内容で決まる。 */
+export const evidenceKey = (spec: string, source: string): string => fnv1a(JSON.stringify([spec, source]))
 
 export const mutationKey = (file: string, find: string, replace: string): string => fnv1a(JSON.stringify([file, find, replace]))
 
@@ -296,7 +299,7 @@ export const mutatedLines = (original: string, find: string, replace: string): {
 
 /**
  * 壊した実装に対する検査の結果を分類する。
- * missed: 定理がまだ通る。invalid: 置き換えた行の中だけで構文・名前のエラーになり、性質を試せていない。
+ * missed: 定理がまだ通る。invalid: 置き換えた行そのものがエラーになり、モデルとして読めていない。
  */
 export const classifyMutation = (
   verdict: Verdict,
@@ -307,10 +310,10 @@ export const classifyMutation = (
   if (verdict === 'proven') return 'missed'
   // 診断のない失敗 (タイムアウト・起動失敗) や定理が見つからない場合は、定理が反例を捉えたとは言えない
   if (verdict !== 'error' || errors.length === 0) return 'inconclusive'
-  // 置き換えた行が読めないと、後ろの定理にも連鎖してエラーが出る。範囲内に構文・名前のエラーが 1 つでもあれば試せていない
+  // 証明の失敗は定理の位置に出る。置き換えた行にエラーがあれば、構文・名前・型 (インスタンス合成など) のどれであれ
+  // モデルが elaborate できておらず、後ろの定理のエラーもその連鎖にすぎない
   const broken = errors.some(d =>
-    fileRel.endsWith(d.file.replace(/^\.\//, '')) && d.line >= range.from && d.line <= range.to &&
-    /unexpected|expected|unknown (?:identifier|constant)|unknown namespace|parse/i.test(d.message))
+    d.severity === 'error' && fileRel.endsWith(d.file.replace(/^\.\//, '')) && d.line >= range.from && d.line <= range.to)
   return broken ? 'invalid' : 'caught'
 }
 
@@ -335,12 +338,12 @@ export type Status = {
   missed: Mutation[]
 }
 
-export const statusOf = (spec: Spec, key: string, rec: Record_ | undefined, now: string | null, changed: string[] | null): Status => {
+export const statusOf = (spec: Spec, evidence: string, rec: Record_ | undefined, now: string | null, changed: string[] | null): Status => {
   const c = rec?.check
   const check: Status['check'] = c === undefined ? 'unrun' : now === null || c.fingerprint !== now ? 'stale' : c.verdict
   const sync: Status['sync'] = spec.syncCommit === undefined ? 'unsynced' : changed === null ? 'unknown' : changed.length > 0 ? 'changed' : 'synced'
-  // 定理や対象が変わる前の記録は、今の仕様の証拠にならない
-  const muts = (rec?.mutations ?? []).filter(m => m.spec === key)
+  // 仕様や Lean ソースが変わる前の記録は、今の定理の証拠にならない
+  const muts = (rec?.mutations ?? []).filter(m => m.spec === evidence)
   return { spec, check, sync, changed: changed ?? [], caught: muts.filter(m => m.caught).length, missed: muts.filter(m => !m.caught) }
 }
 
