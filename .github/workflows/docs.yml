@@ -5,12 +5,14 @@ on:
     branches: [main]
     paths:
       - README.md
+      - .claude-plugin/marketplace.json
       - plugins/*/README.md
       - site/**
       - .github/workflows/docs.yml
   pull_request:
     paths:
       - README.md
+      - .claude-plugin/marketplace.json
       - plugins/*/README.md
       - site/**
       - .github/workflows/docs.yml

@@ -84,7 +84,7 @@ pnpm run test:integration
 
 Mod対応のClaude Codeで実行する。確認した環境(Claude Code 2.1.289)と制約は [harness-profile](plugins/harness-profile/README.md) を参照。依存CLIや外部サービスの前提条件は各READMEに記載している。
 
-ドキュメントサイトは [Blume](https://useblume.dev) で `site/` に作っている。ページはこの README と各プラグインの README から `site/scripts/sync.ts` で生成するので、内容は README を編集する。新しいプラグインを足したら、同じスクリプトの `GROUPS` に分類を足す。main に push すると GitHub Actions がビルドして GitHub Pages に公開する。手元では Node.js 22.19 以上で次を実行する。
+ドキュメントサイトは [Blume](https://useblume.dev) で `site/` に作っている。ページはこの README、各プラグインの README、`.claude-plugin/marketplace.json` から `site/scripts/sync.ts` で生成するので、内容は README を編集する。新しいプラグインは marketplace.json に `category` (サイドバーの分類) を付けて登録すれば、main に入ったときにサイトにも載る。`category` がないプラグインは「その他」に入り、marketplace.json にないプラグインは載らない。README か marketplace.json が main で変わると、GitHub Actions がビルドして GitHub Pages に公開する。手元では Node.js 22.19 以上で次を実行する。
 
 ```sh
 cd site
