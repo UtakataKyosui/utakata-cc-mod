@@ -2,7 +2,7 @@
 
 Claude Codeの動作をカスタマイズするModプラグイン集。タスクの委譲、調査、コンテキスト管理、検証などを組み合わせて開発ハーネスとして利用する。
 
-各プラグインの使い方・設定・制約は個別のREADMEを参照。
+各プラグインの使い方・設定・制約は個別のREADMEを参照。同じ内容をドキュメントサイト (https://utakatakyosui.github.io/utakata-cc-mod/) でも読める。
 
 ## 導入
 
@@ -83,3 +83,12 @@ pnpm run test:integration
 ローカルLLM併用の評価(off / auto / always の比較手順、機密を含まないフィクスチャ、計測レコードとレポート)は [evals/local-llm](evals/local-llm/README.md) にある。通常のテストはモックで動き(`pnpm run test:evals`、`test:integration` にも含む)、実 Claude・実 ollama での測定は手動手順として分けている。効果は未測定で、削減率は保証しない。
 
 Mod対応のClaude Codeで実行する。確認した環境(Claude Code 2.1.289)と制約は [harness-profile](plugins/harness-profile/README.md) を参照。依存CLIや外部サービスの前提条件は各READMEに記載している。
+
+ドキュメントサイトは [Blume](https://useblume.dev) で `site/` に作っている。ページはこの README と各プラグインの README から `site/scripts/sync.ts` で生成するので、内容は README を編集する。新しいプラグインを足したら、同じスクリプトの `GROUPS` に分類を足す。main に push すると GitHub Actions がビルドして GitHub Pages に公開する。手元では Node.js 22.19 以上で次を実行する。
+
+```sh
+cd site
+pnpm install
+pnpm run dev
+```
+

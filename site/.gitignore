@@ -1,0 +1,7 @@
+dist/
+.blume/
+# scripts/sync.ts が README から作る
+docs/mods/
+docs/install.md
+docs/combinations.md
+docs/development.md
